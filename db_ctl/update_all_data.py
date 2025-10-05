@@ -1,35 +1,32 @@
+import time
 import get_tdx_basic
 import get_tdx_daliy
 import get_daily_share
 import get_all_stock_basic
-import logging
 
 if __name__ == "__main__":
-    # 配置日志 - 同时输出到控制台和文件
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler("log.log"),  # 日志文件
-            logging.StreamHandler()  # 控制台输出
-        ]
-    )
-    logger = logging.getLogger(__name__)
 
     try:
         # 获取全部A股信息
-        get_all_stock_basic.main_get_all_stock_basic()
-        # 获取日线 60天
-        # get_daily_share.main_get_daily_share(60, False) # 全部删除，全部更新，适合第一次运行或者修改了获取天数
-        get_daily_share.main_get_daily_share(60, True) # 只更新最新的
+        time1 = time.time()
+        # get_all_stock_basic.main_get_all_stock_basic()
+        time2 = time.time()
+        # 获取日线 90天
+        # get_daily_share.main_get_daily_share(90, False) # 全部删除，全部更新，适合第一次运行或者修改了获取天数
+        get_daily_share.main_get_daily_share(90, True) # 只更新最新的
+        time3 = time.time()
         # 获取通达信概念板块信息
-        get_tdx_basic.main_get_tdx_basic()
+        # get_tdx_basic.main_get_tdx_basic()
+        time4 = time.time()
         # 获取通达信概念板块日线 60天
         # get_tdx_daliy.main_get_tdx_daily(60, False)  # 全部删除，全部更新，适合第一次运行或者修改了获取天数
         get_tdx_daliy.main_get_tdx_daily(60, True) # 只更新最新的
-
-
+        time5 = time.time()
+        print(f"获取全部A股信息耗时: {time2 - time1:.6f} 秒")
+        print(f"获取获取日线耗时: {time3 - time2:.6f} 秒")
+        print(f"获取概念板块信息耗时: {time4 - time3:.6f} 秒")
+        print(f"获取概念板块日线耗时: {time5 - time4:.6f} 秒")
     except Exception as e:
-        logger.warning(f"脚本执行失败，）", e)
+        print(f"脚本执行失败，）", e)
 
 

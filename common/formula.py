@@ -1,194 +1,243 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from db_ctl.util import mongoDb_ctl
 from common import const
 from typing import List, Dict, Optional
-import logging
+import chinadata.ca_data as ts
 
-# 配置日志 - 同时输出到控制台和文件
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("log.log"),  # 日志文件
-        logging.StreamHandler()  # 控制台输出
-    ]
-)
-logger = logging.getLogger(__name__)
+# asi asit   dfma atr dmi dpo  expma  ktn ema  mass  mfi  mtm  psy   roc  taq  trix vr wr  xsii bias cci emv
 
-#------------------ 0级：核心工具函数 --------------------------------------------      
-def RD(N,D=3):   return np.round(N,D)        #四舍五入取3位小数 
-def RET(S,N=1):  return np.array(S)[-N]      #返回序列倒数第N个值,默认返回最后一个
-def ABS(S):      return np.abs(S)            #返回N的绝对值
-def MAX(S1,S2):  return np.maximum(S1,S2)    #序列max
-def MIN(S1,S2):  return np.minimum(S1,S2)    #序列min
-         
-def MA(S,N):           #求序列的N日平均值，返回序列                    
-    return pd.Series(S).rolling(N).mean().values
+# 趋势指标 bbi macd? sar?
+# 反趋势指标 kdj rsi
+# 压力支撑指标  boll
+# 量价指标 obv
+# 量能指标 brar cr
+# 多日均线 ma5 ma6 ma10 ma20 ma60
+def formula_main(indicators: str, data: pd.DataFrame) -> pd.DataFrame:
+    required_columns = ['open', 'high', 'low', 'close', 'trade_date']
+    if not set(required_columns).issubset(data.columns):
+        missing = [col for col in required_columns if col not in data.columns]
+        raise ValueError(f"数据缺少必要的列: {missing}")
+    try:
+        data["date"] = pd.to_datetime(data["trade_date"], format=const.DATE_FORMAT)
+    except ValueError as e:
+        raise ValueError(f"日期转换失败: {str(e)}")
+    data = data.sort_values(by="date").reset_index(drop=True) #按日期升序排列（确保均线计算顺序正确）
 
-def REF(S, N=1):       #对序列整体下移动N,返回序列(shift后会产生NAN)    
-    return pd.Series(S).shift(N).values  
+    match indicators:
+        case "ma":  # 计算多日均线 5 6 10 20 60
+            return ma_formula(data)
+        case "bbi":  # 多空指数 3 6 12 20/3 6 12 24
+            return bbi_formula(data)
+        case "macd":  # 指数平滑异同移动平均线
+            return macd_formula(data)
+        # case "sar":  #
+        #     return sar_formula(data)
+        # case "kdj":  #
+        #     return kdj_formula(data)
+        case "rsi":  #
+            return rsi_formula(data)
+        # case "":  #
+        #     return brar_formula(data)
+        # case "":  #
+        #     return cci_formula(data)
+        # case "ma":  #
+        #     return ma_formula(data)
+        # case "":  #
+        #     return emv_formula(data)
+        # case "":  #
+        #     return kdj_formula(data)
+        # case "":  # 1
+        #     return macd_formula(data)
+        case _:
+            return data
 
-def DIFF(S, N=1):      #前一个值减后一个值,前面会产生nan 
-    return pd.Series(S).diff(N)  #np.diff(S)直接删除nan，会少一行
+def ma_formula(data: pd.DataFrame) -> pd.DataFrame:
+    def calc_ma_per_stock(group):
+        # 计算各周期均线，日期不足时结果为0
+        for i, period in enumerate(const.MA_PERIODS):
+            group[f"ma{period}"] = group["close"].rolling(
+                window=period,
+                min_periods=period
+            ).mean()
+            group[f"ma{period}"] = group[f"ma{period}"].fillna(0)
+        return group
+    result = data.groupby('ts_code', group_keys=False).apply(
+        calc_ma_per_stock,
+        include_groups=False
+    )
+    for i, period in enumerate(const.MA_PERIODS):
+        result[f"ma{period}"] = result[f"ma{period}"].round(5)
+    return result
 
-def STD(S,N):           #求序列的N日标准差，返回序列    
-    return  pd.Series(S).rolling(N).std(ddof=0).values     
+def bbi_formula(data: pd.DataFrame) -> pd.DataFrame:
+    def calculate_bbi_per_stock(group):
+        for i, period in enumerate(const.BBI_PERIODS):
+            group[f"MA{i}"] = group["close"].rolling(
+                window=period,
+                min_periods=period
+            ).mean()
+        valid_mask20 = group[["MA0", "MA1", "MA2", "MA3"]].notna().all(axis=1)
+        valid_mask24 = group[["MA0", "MA1", "MA2", "MA4"]].notna().all(axis=1)
+        group["bbi20"] = 0.0
+        group["bbi24"] = 0.0
+        group.loc[valid_mask20, "bbi20"] = group.loc[valid_mask20, ["MA0", "MA1", "MA2", "MA3"]].sum(axis=1) / 4.0
+        group.loc[valid_mask24, "bbi24"] = group.loc[valid_mask24, ["MA0", "MA1", "MA2", "MA4"]].sum(axis=1) / 4.0
+        group = group.drop(columns=["MA0", "MA1", "MA2", "MA3", "MA4"])
+        return group
 
-def IF(S_BOOL,S_TRUE,S_FALSE):          #序列布尔判断 res=S_TRUE if S_BOOL==True  else  S_FALSE
-    return np.where(S_BOOL, S_TRUE, S_FALSE)
+    df_result = data.groupby("ts_code", group_keys=False).apply(calculate_bbi_per_stock, include_groups=False)
+    df_result["bbi20"] = df_result["bbi20"].round(5)  # 可选：保留2位小数，便于阅读
+    df_result["bbi24"] = df_result["bbi24"].round(5)  # 可选：保留2位小数，便于阅读
 
-def SUM(S, N):                          #对序列求N天累计和，返回序列         
-    return pd.Series(S).rolling(N).sum().values
+    return df_result
 
-def HHV(S,N):                           # HHV(C, 5)  # 最近5天收盘最高价        
-    return pd.Series(S).rolling(N).max().values
+def macd_formula(data: pd.DataFrame) -> pd.DataFrame:
+    fast_period = const.MACD_PERIODS[0]
+    slow_period = const.MACD_PERIODS[1]
+    signal_period = const.MACD_PERIODS[2]
+    def calc_macd_per_stock(group):
+        # 按日期升序排列（确保时间顺序正确）
+        group = group.sort_values('trade_date').reset_index(drop=True)
+        n = len(group)
 
-def LLV(S,N):                           # LLV(C, 5)  # 最近5天收盘最低价     
-    return pd.Series(S).rolling(N).min().values
+        # 1. 计算EMA12（快速指数移动平均线）
+        # 初始值使用前fast_period天的简单平均值
+        group['macd_ema12'] = np.nan
+        if n >= fast_period:
+            # 初始EMA值
+            group.loc[fast_period - 1, 'macd_ema12'] = group['close'].iloc[:fast_period].mean()
+            # 后续EMA值：EMA = 当日收盘价×2/(N+1) + 前一日EMA×(N-1)/(N+1)
+            for i in range(fast_period, n):
+                group.loc[i, 'macd_ema12'] = (group.loc[i, 'close'] * 2 / (fast_period + 1) +
+                                              group.loc[i - 1, 'macd_ema12'] * (fast_period - 1) / (fast_period + 1))
 
-def EMA(S,N):         #指数移动平均,为了精度 S>4*N  EMA至少需要120周期       
-    return pd.Series(S).ewm(span=N, adjust=False).mean().values    
+        # 2. 计算EMA26（慢速指数移动平均线）
+        group['macd_ema26'] = np.nan
+        if n >= slow_period:
+            # 初始EMA值
+            group.loc[slow_period - 1, 'macd_ema26'] = group['close'].iloc[:slow_period].mean()
+            # 后续EMA值
+            for i in range(slow_period, n):
+                group.loc[i, 'macd_ema26'] = (group.loc[i, 'close'] * 2 / (slow_period + 1) +
+                                              group.loc[i - 1, 'macd_ema26'] * (slow_period - 1) / (slow_period + 1))
 
-def SMA(S, N, M=1):       #中国式的SMA,至少需要120周期才精确 (雪球180周期)    alpha=1/(1+com)    
-    return pd.Series(S).ewm(alpha=M/N,adjust=False).mean().values           #com=N-M/M
+        # 3. 计算MACD线（差离值 = EMA12 - EMA26）
+        group['macd_line'] = group['macd_ema12'] - group['macd_ema26']
 
-def AVEDEV(S,N):      #平均绝对偏差  (序列与其平均值的绝对差的平均值)   
-    avedev=pd.Series(S).rolling(N).apply(lambda x: (np.abs(x - x.mean())).mean())    
-    return avedev.values
+        # 4. 计算信号线DEA（MACD线的signal_period日EMA）
+        group['macd_dea'] = np.nan
+        # 找到第一个有效的MACD值位置
+        first_valid_macd = group['macd_line'].first_valid_index()
+        if first_valid_macd is not None and (n - first_valid_macd) >= signal_period:
+            # 初始DEA值
+            start_idx = first_valid_macd + signal_period - 1
+            group.loc[start_idx, 'macd_dea'] = group['macd_line'].iloc[first_valid_macd:start_idx + 1].mean()
+            # 后续DEA值
+            for i in range(start_idx + 1, n):
+                group.loc[i, 'macd_dea'] = (group.loc[i, 'macd_line'] * 2 / (signal_period + 1) +
+                                            group.loc[i - 1, 'macd_dea'] * (signal_period - 1) / (signal_period + 1))
 
-def SLOPE(S,N,RS=False):               #返S序列N周期回线性回归斜率 (默认只返回斜率,不返回整个直线序列)
-    M=pd.Series(S[-N:]);   poly = np.polyfit(M.index, M.values,deg=1);    Y=np.polyval(poly, M.index); 
-    if RS: return Y[1]-Y[0],Y
-    return Y[1]-Y[0]
+        # 5. 计算MACD柱状图（BAR = (MACD线 - DEA) × 2）
+        group['macd_bar'] = (group['macd_line'] - group['macd_dea']) * 2
 
-  
-#------------------   1级：应用层函数(通过0级核心函数实现） ----------------------------------
-def COUNT(S_BOOL, N):                  # COUNT(CLOSE>O, N):  最近N天满足S_BOO的天数  True的天数
-    return SUM(S_BOOL,N)    
+        # 处理周期不足的情况（填充为0）
+        group[['macd_ema12', 'macd_ema26', 'macd_line', 'macd_dea', 'macd_bar']] = \
+            group[['macd_ema12', 'macd_ema26', 'macd_line', 'macd_dea', 'macd_bar']].fillna(0)
 
-def EVERY(S_BOOL, N):                  # EVERY(CLOSE>O, 5)   最近N天是否都是True
-    R=SUM(S_BOOL, N)
-    return  IF(R==N, True, False)
-  
-def LAST(S_BOOL, A, B):                #从前A日到前B日一直满足S_BOOL条件   
-    if A<B: A=B                        #要求A>B    例：LAST(CLOSE>OPEN,5,3)  5天前到3天前是否都收阳线     
-    return S_BOOL[-A:-B].sum()==(A-B)  #返回单个布尔值    
+        return group
 
-def EXIST(S_BOOL, N=5):                # EXIST(CLOSE>3010, N=5)  n日内是否存在一天大于3000点
-    R=SUM(S_BOOL,N)    
-    return IF(R>0, True ,False)
+    # 分组计算并消除警告
+    result = data.groupby('ts_code', group_keys=False).apply(
+        calc_macd_per_stock,
+        include_groups=False
+    )
 
-def BARSLAST(S_BOOL):                  #上一次条件成立到当前的周期  
-    M=np.argwhere(S_BOOL);             # BARSLAST(CLOSE/REF(CLOSE)>=1.1) 上一次涨停到今天的天数
-    return len(S_BOOL)-int(M[-1])-1  if M.size>0 else -1
+    result = result.drop(columns=["macd_ema12", "macd_ema26"])
+    return result
 
-def FORCAST(S,N):                      #返S序列N周期回线性回归后的预测值
-    K,Y=SLOPE(S,N,RS=True)
-    return Y[-1]+K
-  
-def CROSS(S1,S2):                      #判断穿越 CROSS(MA(C,5),MA(C,10))               
-    CROSS_BOOL=IF(S1>S2, True ,False)   
-    return COUNT(CROSS_BOOL>0,2)==1    #上穿：昨天0 今天1   下穿：昨天1 今天0
+def sar_formula(data: pd.DataFrame) -> pd.DataFrame:
+    return data
 
+def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
+    return data
 
+def rsi_formula(data: pd.DataFrame) -> pd.DataFrame:
+    df = data.copy()
+    for i, period in enumerate(const.RSI_PERIODS):
+        price_col = 'close'
+        df[f"delta{period}"] = df[price_col].diff(1)  # 当日 - 前一日
 
-#------------------   2级：技术指标函数(全部通过0级，1级函数实现） ------------------------------
-def MACD(CLOSE,SHORT=12,LONG=26,M=9):            # EMA的关系，S取120日，和雪球小数点2位相同
-    DIF = EMA(CLOSE,SHORT)-EMA(CLOSE,LONG);  
-    DEA = EMA(DIF,M);      MACD=(DIF-DEA)*2
-    return RD(DIF),RD(DEA),RD(MACD)
+        # 2. 区分上涨和下跌幅度
+        df[f"gain{period}"] = np.where(df[f"delta{period}"] > 0, df[f"delta{period}"], 0)  # 上涨幅度
+        df[f"loss{period}"] = np.where(df[f"delta{period}"] < 0, -df[f"delta{period}"], 0)  # 下跌幅度（取绝对值）
 
-def KDJ(CLOSE,HIGH,LOW, N=9,M1=3,M2=3):         # KDJ指标
-    RSV = (CLOSE - LLV(LOW, N)) / (HHV(HIGH, N) - LLV(LOW, N)) * 100
-    K = EMA(RSV, (M1*2-1));    D = EMA(K,(M2*2-1));        J=K*3-D*2
-    return K, D, J
+        # 3. 计算初始N天的平均增益和平均损失
+        # 前N天的简单平均值
+        initial_avg_gain = df[f"gain{period}"].iloc[1:period + 1].mean()  # 第1到第N天的gain平均
+        initial_avg_loss = df[f"loss{period}"].iloc[1:period + 1].mean()  # 第1到第N天的loss平均
 
-def RSI(CLOSE, N=24):      
-    DIF = CLOSE-REF(CLOSE,1) 
-    return RD(SMA(MAX(DIF,0), N) / SMA(ABS(DIF), N) * 100)  
+        # 初始化RSI列
+        df[f"rsi{period}"] = np.nan
 
-def WR(CLOSE, HIGH, LOW, N=10, N1=6):            #W&R 威廉指标
-    WR = (HHV(HIGH, N) - CLOSE) / (HHV(HIGH, N) - LLV(LOW, N)) * 100
-    WR1 = (HHV(HIGH, N1) - CLOSE) / (HHV(HIGH, N1) - LLV(LOW, N1)) * 100
-    return RD(WR), RD(WR1)
+        # 计算第N天的RSI值（索引为period）
+        if initial_avg_loss == 0:
+            df.loc[period, f"rsi{period}"] = 100.0
+        else:
+            rs = initial_avg_gain / initial_avg_loss
+            df.loc[period, f"rsi{period}"] = 100 - (100 / (1 + rs))
 
-def BIAS(CLOSE,L1=6, L2=12, L3=24):              # BIAS乖离率
-    BIAS1 = (CLOSE - MA(CLOSE, L1)) / MA(CLOSE, L1) * 100
-    BIAS2 = (CLOSE - MA(CLOSE, L2)) / MA(CLOSE, L2) * 100
-    BIAS3 = (CLOSE - MA(CLOSE, L3)) / MA(CLOSE, L3) * 100
-    return RD(BIAS1), RD(BIAS2), RD(BIAS3)
+        # 4. 计算后续日期的RSI（从第N+1天开始）
+        for i in range(period + 1, len(df)):
+            # 平滑计算平均增益和损失
+            current_avg_gain = (initial_avg_gain * (period - 1) + df[f"gain{period}"].iloc[i]) / period
+            current_avg_loss = (initial_avg_loss * (period - 1) + df[f"loss{period}"].iloc[i]) / period
 
-def BOLL(CLOSE,N=20, P=2):                       #BOLL指标，布林带    
-    MID = MA(CLOSE, N); 
-    UPPER = MID + STD(CLOSE, N) * P
-    LOWER = MID - STD(CLOSE, N) * P
-    return RD(UPPER), RD(MID), RD(LOWER)    
+            # 计算RSI
+            if current_avg_loss == 0:
+                df.loc[i, f"rsi{period}"] = 100.0
+            else:
+                rs = current_avg_gain / current_avg_loss
+                df.loc[i, f"rsi{period}"] = 100 - (100 / (1 + rs))
 
-def PSY(CLOSE,N=12, M=6):  
-    PSY=COUNT(CLOSE>REF(CLOSE,1),N)/N*100
-    PSYMA=MA(PSY,M)
-    return RD(PSY),RD(PSYMA)
+            # 更新平均值用于下一次计算
+            initial_avg_gain = current_avg_gain
+            initial_avg_loss = current_avg_loss
+        df = df.drop(columns=[f"gain{period}", f"loss{period}", f"delta{period}"])
 
-def CCI(CLOSE,HIGH,LOW,N=14):  
-    TP=(HIGH+LOW+CLOSE)/3
-    return (TP-MA(TP,N))/(0.015*AVEDEV(TP,N))
-        
-def ATR(CLOSE,HIGH,LOW, N=20):                    #真实波动N日平均值
-    TR = MAX(MAX((HIGH - LOW), ABS(REF(CLOSE, 1) - HIGH)), ABS(REF(CLOSE, 1) - LOW))
-    return MA(TR, N)
+    return df
 
-def BBI(CLOSE,M1=3,M2=6,M3=12,M4=20):             #BBI多空指标   
-    return (MA(CLOSE,M1)+MA(CLOSE,M2)+MA(CLOSE,M3)+MA(CLOSE,M4))/4    
+# def cci_formula(data: pd.DataFrame) -> pd.DataFrame:
+#     return data
+#
+#
+# def ma_formula(data: pd.DataFrame) -> pd.DataFrame:
+#     return data
+#
+#
+# def emv_formula(data: pd.DataFrame) -> pd.DataFrame:
+#     return data
+#
+#
+# def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
+#     return data
+#
+#
+# def macd_formula(data: pd.DataFrame) -> pd.DataFrame:
+#     return data
 
-def DMI(CLOSE,HIGH,LOW,M1=14,M2=6):               #动向指标：结果和同花顺，通达信完全一致
-    TR = SUM(MAX(MAX(HIGH - LOW, ABS(HIGH - REF(CLOSE, 1))), ABS(LOW - REF(CLOSE, 1))), M1)
-    HD = HIGH - REF(HIGH, 1);     LD = REF(LOW, 1) - LOW
-    DMP = SUM(IF((HD > 0) & (HD > LD), HD, 0), M1)
-    DMM = SUM(IF((LD > 0) & (LD > HD), LD, 0), M1)
-    PDI = DMP * 100 / TR;         MDI = DMM * 100 / TR
-    ADX = MA(ABS(MDI - PDI) / (PDI + MDI) * 100, M2)
-    ADXR = (ADX + REF(ADX, M2)) / 2
-    return PDI, MDI, ADX, ADXR  
+#
+# if __name__ == "__main__":
+#     pro = ts.pro_api('j80872d274089319b71f9e5ca3966abf009')
+#
+#     daily_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_DAILY_COLL)
+#     cursor = daily_coll.find({},
+#                              {"_id": 0, "up_time": 0, "vol": 0, "amount": 0, "vol_ratio": 0, "turn_over": 0, "swing": 0,
+#                               "selling": 0, "buying": 0, "change": 0, "pct_change": 0})
+#     data = pd.DataFrame(list(cursor))
+#     # print(data.to_string())
+#     df = formula_main("rsi", data)
+#     print(df.to_string())
 
-def TAQ(HIGH,LOW,N):                              #唐安奇通道交易指标，大道至简，能穿越牛熊
-    UP=HHV(HIGH,N);    DOWN=LLV(LOW,N);    MID=(UP+DOWN)/2
-    return UP,MID,DOWN
-
-def TRIX(CLOSE,M1=12, M2=20):                      #三重指数平滑平均线
-    TR = EMA(EMA(EMA(CLOSE, M1), M1), M1)
-    TRIX = (TR - REF(TR, 1)) / REF(TR, 1) * 100
-    TRMA = MA(TRIX, M2)
-    return TRIX, TRMA
-
-def VR(CLOSE,VOL,M1=26):                           #VR容量比率
-    LC = REF(CLOSE, 1)
-    return SUM(IF(CLOSE > LC, VOL, 0), M1) / SUM(IF(CLOSE <= LC, VOL, 0), M1) * 100
-
-def EMV(HIGH,LOW,VOL,N=14,M=9):                     #简易波动指标 
-    VOLUME=MA(VOL,N)/VOL;       MID=100*(HIGH+LOW-REF(HIGH+LOW,1))/(HIGH+LOW)
-    EMV=MA(MID*VOLUME*(HIGH-LOW)/MA(HIGH-LOW,N),N);    MAEMV=MA(EMV,M)
-    return EMV,MAEMV
-
-
-def DPO(CLOSE,M1=20, M2=10, M3=6):                  #区间震荡线
-    DPO = CLOSE - REF(MA(CLOSE, M1), M2);    MADPO = MA(DPO, M3)
-    return DPO, MADPO
-
-def BRAR(OPEN,CLOSE,HIGH,LOW,M1=26):                 #BRAR-ARBR 情绪指标  
-    AR = SUM(HIGH - OPEN, M1) / SUM(OPEN - LOW, M1) * 100
-    BR = SUM(MAX(0, HIGH - REF(CLOSE, 1)), M1) / SUM(MAX(0, REF(CLOSE, 1) - LOW), M1) * 100
-    return AR, BR
-
-def DMA(CLOSE,N1=10,N2=50,M=10):                     #平行线差指标  
-    DIF=MA(CLOSE,N1)-MA(CLOSE,N2);    DIFMA=MA(DIF,M)
-    return DIF,DIFMA
-
-def MTM(CLOSE,N=12,M=6):                             #动量指标
-    MTM=CLOSE-REF(CLOSE,N);         MTMMA=MA(MTM,M)
-    return MTM,MTMMA
-
-def ROC(CLOSE,N=12,M=6):                             #变动率指标
-    ROC=100*(CLOSE-REF(CLOSE,N))/REF(CLOSE,N);    MAROC=MA(ROC,M)
-    return ROC,MAROC  
-  
-  #望大家能提交更多指标和函数  https://github.com/mpquant/MyTT

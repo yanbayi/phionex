@@ -1,7 +1,6 @@
 # 获取A股所有股票基本信息
 import pandas as pd
 from datetime import datetime
-import logging
 import time
 import chinadata.ca_data as ts
 from pymongo import MongoClient
@@ -11,20 +10,9 @@ from tqdm import tqdm  # 进度条库（核心新增）
 from typing import List, Dict  # 类型提示（提升代码可读性）
 from common import const
 
-# 配置日志 - 同时输出到控制台和文件
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("log.log"),  # 日志文件
-        logging.StreamHandler()  # 控制台输出
-    ]
-)
-logger = logging.getLogger(__name__)
-
 
 def fetch_a_share_full_data(pro: ts.pro_api) -> (pd.DataFrame, pd.DataFrame):
-    logger.info("开始全量拉取A股基础信息")
+    print("开始全量拉取A股基础信息")
     try:
         # 1. 先获取总数据量（用于进度条计算）
         # ts_code	    str	N	TS股票代码
@@ -38,7 +26,7 @@ def fetch_a_share_full_data(pro: ts.pro_api) -> (pd.DataFrame, pd.DataFrame):
             exchange='',
             fields='ts_code'  # 仅获取计数所需字段，减少数据传输
         ).shape[0]
-        logger.info(f"预计拉取总条数：{total_count} 条")
+        print(f"预计拉取总条数：{total_count} 条")
 
         if total_count == 0:
             raise ValueError("拉取到0条数据，可能是接口权限或参数错误")
@@ -70,7 +58,7 @@ def fetch_a_share_full_data(pro: ts.pro_api) -> (pd.DataFrame, pd.DataFrame):
 
         # 4. 合并所有分页数据
         full_df = pd.concat(all_data, ignore_index=True)
-        logger.info(f"A股数据拉取完成，实际获取条数：{full_df.shape[0]} 条")
+        print(f"A股数据拉取完成，实际获取条数：{full_df.shape[0]} 条")
         # 5. 数据预处理（带进度展示）
         full_df = preprocess_data(full_df)
 
@@ -82,12 +70,12 @@ def fetch_a_share_full_data(pro: ts.pro_api) -> (pd.DataFrame, pd.DataFrame):
         )
         return full_df, dll_df
     except Exception as e:
-        logger.error(f"A股数据拉取失败：{str(e)}")
+        print(f"A股数据拉取失败：{str(e)}")
         raise
 
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """数据预处理：格式转换、新增字段，带进度条展示"""
-    logger.info("开始数据预处理...")
+    print("开始数据预处理...")
     # 1. 新增数据获取时间（当前时间）
     df['up_time'] = datetime.now()
     # 2. 新增扩展
@@ -98,8 +86,8 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.dropna(subset=['ts_code']).reset_index(drop=True)
     after_clean = len(df)
     if before_clean > after_clean:
-        logger.warning(f"清理无效数据：删除 {before_clean - after_clean} 条ts_code为空的记录")
-    logger.info(f"数据预处理完成，最终有效数据条数：{len(df)} 条")
+        print(f"清理无效数据：删除 {before_clean - after_clean} 条ts_code为空的记录")
+    print(f"数据预处理完成，最终有效数据条数：{len(df)} 条")
     return df
 
 
@@ -107,7 +95,7 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
     basic_mongo_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)
     daily_mongo_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_DAILY_COLL)
 
-    logger.info("开始MongoDB全量更新...")
+    print("开始MongoDB全量更新...")
     try:
         # 1. 准备待操作的ts_code列表（用于删除历史数据）
         ts_codes = full_df['ts_code'].tolist()
@@ -117,7 +105,7 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
             raise ValueError("无有效数据可更新到MongoDB")
 
         # 2. 批量删除历史数据（按ts_code分批次删除，避免单次删除压力过大）
-        logger.info("开始删除MongoDB历史数据...")
+        print("开始删除MongoDB历史数据...")
         batch_size = 500  # 每批次删除500条
         total_batches = (total_records + batch_size - 1) // batch_size
         # deleted_basic_total = 0
@@ -127,7 +115,7 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
         #     # 执行删除
         delete_result = basic_mongo_coll.delete_many({})
         deleted_count = delete_result.deleted_count
-        logger.info(f"basic历史数据删除完成，共删除 {deleted_count} 条")
+        print(f"basic历史数据删除完成，共删除 {deleted_count} 条")
 
         # 3. 删除日线里以停牌的股票
         ts_codes_dll = dll_df['ts_code'].tolist()
@@ -141,10 +129,10 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
             delete_result = daily_mongo_coll.delete_many({"ts_code": {"$in": batch_ts_codes}})
             deleted_count = delete_result.deleted_count
             deleted_daily_total += deleted_count
-        logger.info(f"日线历史数据删除完成，共删除 {deleted_daily_total} 条")
+        print(f"日线历史数据删除完成，共删除 {deleted_daily_total} 条")
 
         # 3. 转换DataFrame为MongoDB可接受的字典列表（处理NaT为None）
-        logger.info("转换数据格式")
+        print("转换数据格式")
         data_list: List[Dict] = []
         for _, row in full_df.iterrows():
             data = row.to_dict()
@@ -154,11 +142,11 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
                     data[key] = None
                 if data[key] is None and key in ["industry","area"]:
                     data[key] = ""
-                    logger.info(f"有股票缺数据：   {data} ")
+                    print(f"有股票缺数据：   {data} ")
             data_list.append(data)
 
         # 4. 批量插入新数据（分批次插入，避免单次插入数据量过大）
-        logger.info("开始插入MongoDB新数据...")
+        print("开始插入MongoDB新数据...")
         inserted_total = 0
         with tqdm(total=len(data_list), desc="插入新数据", unit="条") as pbar:
             for i in range(total_batches):
@@ -171,33 +159,33 @@ def full_update_mongo(full_df: pd.DataFrame, dll_df: pd.DataFrame):
                 pbar.update(len(batch_data))
         # 5. 验证更新结果
         if inserted_total == total_records:
-            logger.info(f"MongoDB全量更新成功！插入 {inserted_total} 条新数据（与拉取数据量一致）")
+            print(f"MongoDB全量更新成功！插入 {inserted_total} 条新数据（与拉取数据量一致）")
         else:
-            logger.error(
+            print(
                 f"MongoDB更新警告：拉取 {total_records} 条，但仅插入 {inserted_total} 条（可能存在重复或约束错误）")
 
     except Exception as e:
-        logger.error(f"MongoDB全量更新失败：{str(e)}")
+        print(f"MongoDB全量更新失败：{str(e)}")
         raise
 
 
 def main_get_all_stock_basic():
-    logger.info("=" * 60)
-    logger.info("启动A股基础信息每日全量更新脚本")
-    logger.info("=" * 60)
+    print("=" * 60)
+    print("启动A股基础信息每日全量更新脚本")
+    print("=" * 60)
 
     # 初始化客户端
     pro = tushare_ctl.init_tushare_client()
     try:
         full_df, dll_df = fetch_a_share_full_data(pro)
         full_update_mongo(full_df, dll_df)
-        logger.info("=" * 60)
-        logger.info("A股基础信息每日全量更新脚本执行完成！")
-        logger.info("=" * 60)
+        print("=" * 60)
+        print("A股基础信息每日全量更新脚本执行完成！")
+        print("=" * 60)
     except Exception as e:
-        logger.error("=" * 60)
-        logger.error(f"A股基础信息脚本执行失败：{str(e)}")
-        logger.error("=" * 60)
+        print("=" * 60)
+        print(f"A股基础信息脚本执行失败：{str(e)}")
+        print("=" * 60)
         raise
 
 
@@ -205,4 +193,4 @@ if __name__ == "__main__":
     try:
         main_get_all_stock_basic()
     except Exception as e:
-        logger.error(f"脚本执行失败，）")
+        print(f"脚本执行失败，）")

@@ -1,3 +1,35 @@
+// use stock;
+// db.dropDatabase()
+
+if (db.conf_daily.exists()) {
+    db.conf_daily.drop();
+    print("已删除旧的 conf_daily 集合（含索引）");
+} else {
+    print("conf_daily 集合不存在，无需删除");
+}
+db.createCollection("conf_daily", {
+  validator: {
+    $jsonSchema: {
+      bsonType: "object",
+      properties: {
+        "name": {
+          bsonType: "string",
+        },
+        "value": {
+          bsonType: "string",
+        },
+      }
+    }
+  },
+});
+
+db.a_share_basic.createIndex({ "name": 1},{unique: true})
+
+
+db.conf_daily.insertOne({"name":"daily_up_date", "value":""})
+db.conf_daily.insertOne({"name":"tdx_daily_up_date", "value":""})
+
+
 //==========================================1. 股票基础信息表 - 存储股票基本资料==============================================
 //use stock;
 if (db.a_share_basic.exists()) {
@@ -68,109 +100,6 @@ if (db.a_share_daily.exists()) {
     db.a_share_daily.drop();
     print("已删除旧的 a_share_daily 集合，准备创建新结构");
 }
-
-db.createCollection("a_share_daily", {
-    validator: {
-        $jsonSchema: {
-            bsonType: "object",
-            properties: {
-                "ts_code": {
-                  bsonType: "string",
-                  description: "股票唯一代码"
-                },
-                "trade_date": {
-                    bsonType: "string",
-                    description: "交易日"
-                },
-                "open": {
-                    bsonType: "number",
-                    description: "开盘价"
-                },
-                "high": {
-                    bsonType: "number",
-                    description: "最高价"
-                },
-                "low": {
-                    bsonType: "number",
-                    description: "最低价"
-                },
-                "close": {
-                    bsonType: "number",
-                    description: "收盘价"
-                },
-                "pre_close": {
-                    bsonType: "number",
-                    description: "前收盘价"
-                },
-                "change": {
-                    bsonType: "number",
-                    description: "涨跌额"
-                },
-                "pct_change": {
-                    bsonType: "number",
-                    description: "涨跌幅 %（今收-除权昨收）/除权昨收"
-                },
-                "vol": {
-                    bsonType: "number",
-                    description: "成交量 手"
-                },
-                "amount": {
-                    bsonType: "number",
-                    description: "成交额 千元"
-                },
-                "vol_ratio": {
-                    bsonType: "number",
-                    description: "量比"
-                },
-                "turn_over": {
-                    bsonType: "number",
-                    description: "换手率"
-                },
-                "swing": {
-                    bsonType: "number",
-                    description: "振幅 (high-low)/pre_close*100，范围[0,20]，保留2位小数"
-                },
-                "selling": {
-                    bsonType: "number",
-                    description: "内盘（主动卖，手）"
-                },
-                "buying": {
-                    bsonType: "number",
-                    description: "外盘（主动买， 手）"
-                },
-                "strength": {
-                    bsonType: "number",
-                    description: "强弱度(%)"
-                },
-                "activity": {
-                    bsonType: "number",
-                    description: "活跃度(%)"
-                },
-                "attack": {
-                    bsonType: "number",
-                    description: "攻击波(%)"
-                },
-                 "avg_price": {
-                    bsonType: "number",
-                    description: "当日均价amount*10000/(vol*100)，保留2位小数"
-                },
-                "bbi": {
-                    bsonType: "number",
-                    description: "bbi，保留2位小数"
-                },
-                "up_time": {
-                    bsonType: "date",
-                    description: "数据获取时间"
-                },
-            }
-        }
-    },
-    validationLevel: "strict",
-    validationAction: "error",
-    storageEngine: {
-        wiredTiger: {}
-    }
-});
 
 db.a_share_daily.createIndex({ "ts_code": 1, "trade_date": -1},{unique: true,background: true,name: "idx_uniq_code_date"});
 
