@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import re
 
 import requests
 from PIL import Image  # 用于图片压缩
@@ -280,10 +281,36 @@ pro = ts.pro_api('j80872d274089319b71f9e5ca3966abf009')
 #     today -= datetime.timedelta(days=1)
 # print(today)
 
+condition_results = {
+        "1": ['881319.TDX'],
+        "2": ['881319.TDX', '880904.TDX', '880912.TDX'],
+        "3": ['880912.TDX', '880608.TDX']
+    }
+# "1 and 2",
+# "1 or 2",
+# "1 and (2 or 3)",
+# "(1 or 2) and 3"
+logic_expr = "2or(3or1)"
+expr = logic_expr.replace('（', '(').replace('）', ')')
+expr = expr.replace('and', '&').replace('or', '|')
+# 3. 提取表达式中的所有数字键
+keys = re.findall(r'\b\d+\b', expr)
 
-aa = {}
-aa["1"] = 1
-aa["2"] = 2
-aa["1"] = 3
-aa["4"] = 4
-print(aa)
+# 4. 验证所有键都存在于condition_results中
+for key in keys:
+    if key not in condition_results:
+        raise ValueError(f"表达式中的键 '{key}' 不存在于数据中")
+
+# 5. 将数字键替换为对应的集合
+for key in keys:
+    # 使用正则确保只匹配独立的数字键，避免部分匹配
+    expr = re.sub(rf'\b{key}\b', f"set(condition_results['{key}'])", expr)
+
+try:
+    # 6. 执行表达式计算
+    result_set = eval(expr)
+
+    # 7. 转换为排序后的列表并返回
+    print(sorted(list(result_set)))
+except Exception as e:
+    raise ValueError(f"表达式执行错误: {str(e)}, 转换后的表达式: {expr}")
