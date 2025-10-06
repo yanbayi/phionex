@@ -368,5 +368,5 @@ class TdxFilter:
             # condition_results[condition_type] = result
         # print("执行公式:", logic_expr)
         # final_mask = self.parse_logic_expression(logic_expr, condition_results)
-        print("最终结果:", final_mask)
+        print("最终结果共", len(final_mask), "只概念、板块, 具体是:", final_mask)
         return final_mask

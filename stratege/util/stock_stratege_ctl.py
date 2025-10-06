@@ -235,7 +235,11 @@ class StockFilter:
         return final_mask
 
     def backtest_stocks(self, stock_list: List[str]):
-        start_date_str, end_date_str = utils.get_start_date(self.pro, 10, self.target_date_str)
+        start_date_str, end_date_str = utils.get_start_date(self.pro, 1, self.target_date_str)
+        start_date_str = end_date_str
+        end_date = datetime.strptime(start_date_str, const.DATE_FORMAT)
+        end_date += timedelta(days=10)
+        end_date_str = end_date.strftime(const.DATE_FORMAT)
         # 3. 批量查询股票数据
         pipeline = [
             {
@@ -259,32 +263,38 @@ class StockFilter:
 
         # 5. 计算每日收益（(当日收盘价/前一日收盘价 - 1)）
         df = df.sort_values(by=["ts_code", "date"])
-        df["daily_return"] = df.groupby("ts_code")["close"].pct_change()
-
-        # 6. 整理每日收益数据（透视表形式，便于查看）
-        daily_returns = df.pivot(
-            index="trade_date",
-            columns="ts_code",
-            values="daily_return"
-        ).round(4)  # 保留4位小数
-        # 7. 计算每只股票的总收益
-        total_returns = {}
+        result_dfs = []  # 存储每只股票的处理结果
         for code in stock_list:
             # 筛选单只股票数据
-            stock_data = df[df["ts_code"] == code].sort_values("date")
+            stock_data = df[df["ts_code"] == code].copy()
             if len(stock_data) < 2:
-                total_returns[code] = 0.0  # 数据不足时总收益为0
-                continue
+                continue  # 数据不足则跳过
+            # 计算每日收益 (当日收盘价/前一日收盘价 - 1)
+            stock_data["daily_return"] = stock_data["close"].pct_change()
+            # 计算阶段性总收益 (从起始日到当日的累计收益)
+            # 公式: (当日收盘价 / 起始日收盘价) - 1
+            start_close = stock_data.iloc[0]["close"]
+            stock_data["cumulative_total"] = (stock_data["close"] / start_close) - 1
 
-            # 总收益 = (最后一天收盘价 / 第一天收盘价) - 1
-            first_close = stock_data.iloc[0]["close"]
-            last_close = stock_data.iloc[-1]["close"]
-            total_return = (last_close / first_close) - 1
-            total_returns[code] = round(total_return, 4)
+            # 重命名列，区分不同股票
+            stock_data = stock_data.rename(columns={
+                "daily_return": f"{code}_daily",
+                "cumulative_total": f"{code}_total"
+            })
 
+            # 保留日期和计算结果列
+            result_dfs.append(stock_data[["date", f"{code}_daily", f"{code}_total"]])
+
+        # 合并所有股票的结果（按日期对齐）
+        if not result_dfs:
+            raise ValueError("没有足够的有效数据用于计算收益")
+
+        returns_df = result_dfs[0]
+        for df_part in result_dfs[1:]:
+            returns_df = returns_df.merge(df_part, on="date", how="outer")
+
+        # 按日期排序
+        returns_df = returns_df.sort_values("date").set_index("date")
         # 打印结果
         print("每日收益（百分比形式）：")
-        print((daily_returns * 100).to_string())  # 转换为百分比显示
-        print("\n总收益（百分比形式）：")
-        for code, ret in total_returns.items():
-            print(f"{code}: {ret * 100:.2f}%")
+        print((returns_df * 100).to_string())  # 转换为百分比显示
