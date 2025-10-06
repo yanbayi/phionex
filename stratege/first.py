@@ -2,7 +2,8 @@ from util import stock_stratege_ctl, tdx_stratege_ctl
 
 
 ############################################ 挑选日期 ################################################
-date_str = "20251009"
+date_str = "20250918"
+is_need_backtest = True
 ########################################## 概念指标条件 ###############################################
 # 板块：日线挑选5天涨幅最高，至少有3天在涨，并且成交额大的20个概念板块
 tdx_conditions = [
@@ -30,7 +31,7 @@ stock_conditions = [
     # 最近day1天涨幅超过n%
     {"type": "3", "name": "涨幅条件2", "enable": True, "params": {"day1": 10, "n": 10}},
     # 最近day1天内存在某一天的成交量达到成交量均值的n倍以上
-    {"type": "4", "name": "成交量条件1", "enable": True, "params": {"day1": 5, "n": 1.2}},
+    {"type": "4", "name": "成交量条件1", "enable": True, "params": {"day1": 5, "n": 1.3}},
     # 最近day1天成交量均值高于最近(day1天前的)day2天成交量均值n倍以上
     {"type": "5" , "name": "成交量条件2", "enable": False, "params": {"day1": 3, "day2": 10, "n": 1.5}},
     # 最近day1天量比均大于n
@@ -43,6 +44,8 @@ if __name__ == "__main__":
     tdx_filter = tdx_stratege_ctl.TdxFilter()
     get_tdx_list = tdx_filter.filter_stocks(date_str, tdx_conditions)
     # 基于板块筛选股票
-    stock_filter = stock_stratege_ctl.StockFilter(get_tdx_list)
-    get_stock_list = stock_filter.filter_stocks(date_str, stock_conditions, stock_logic_expr)
+    stock_filter = stock_stratege_ctl.StockFilter(get_tdx_list, date_str)
+    get_stock_list = stock_filter.filter_stocks(stock_conditions, stock_logic_expr)
     # 回测数据
+    if is_need_backtest:
+        stock_filter.backtest_stocks(get_stock_list)

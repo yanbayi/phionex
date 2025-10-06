@@ -2,14 +2,14 @@ import re
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Callable, Any
+from typing import List, Dict, Tuple
 from db_ctl.util import mongoDb_ctl
 from common import const, utils
 from data_ctl import tushare_ctl
 
 
 class StockFilter:
-    def __init__(self, get_tdx_list: List):
+    def __init__(self, get_tdx_list: List, target_date_str: str):
         self.condition_handlers = {
             "1": self.filter_bbi_crossover,
             "2": self.filter_limit_up1,
@@ -24,6 +24,7 @@ class StockFilter:
         self.tdx_member_coll = mongoDb_ctl.init_mongo_collection(const.TDX_MEMBER)
         self.tdx_list = get_tdx_list
         self.stock_base_df = pd.DataFrame()
+        self.target_date_str = target_date_str
         # day1 = params.get('day1', 1)
         # day2 = params.get('day2', 1)
         # day3 = params.get('day3', 1)
@@ -48,8 +49,9 @@ class StockFilter:
     def filter_bbi_crossover(self, params: Dict) -> List:
 
         day1 = params.get('day1', 1)
+
         def check_crossover(group):
-            recent_data = group.tail(day1) # 只取最近n天的数据
+            recent_data = group.tail(day1)  # 只取最近n天的数据
             if len(recent_data) < 2:
                 return False
             # 计算每日是否收盘价在BBI上方
@@ -59,6 +61,7 @@ class StockFilter:
                     (recent_data['above_bbi'] == True)
             ).any()
             return has_crossover
+
         # 按股票代码分组检查
         crossover_result = self.stock_base_df.groupby('ts_code').apply(check_crossover)
         # 提取有上穿信号的股票代码
@@ -70,6 +73,7 @@ class StockFilter:
         day2 = params.get('day2', 1)
         day3 = params.get('day3', 1)
         n = params.get('n', 100)
+
         def check_up_conditions(group):
             recent_data = group.tail(day1)
             if len(recent_data) < day1:
@@ -80,6 +84,7 @@ class StockFilter:
             over_n_days_count = (recent_data['pct_chg'] > n).sum()
             # 同时满足两个条件
             return (up_days_count >= day2) and (over_n_days_count >= day3)
+
         condition_met = self.stock_base_df.groupby('ts_code').apply(check_up_conditions)
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
@@ -87,6 +92,7 @@ class StockFilter:
     def filter_limit_up2(self, params: Dict) -> List:
         day1 = params.get('day1', 1)
         n = params.get('n', 100)
+
         def check_growth_condition(group):
             recent_data = group.tail(day1)
             if len(recent_data) < day1:
@@ -97,6 +103,7 @@ class StockFilter:
             total_growth = (last_close / first_close - 1) * 100
             # 判断是否超过涨幅阈值
             return total_growth > n
+
         condition_met = self.stock_base_df.groupby('ts_code').apply(check_growth_condition)
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
@@ -104,6 +111,7 @@ class StockFilter:
     def filter_vol1(self, params: Dict) -> List:
         day1 = params.get('day1', 1)
         n = params.get('n', 100)
+
         def check_volume_condition(group):
             recent_data = group.tail(day1)
             if len(recent_data) < day1:
@@ -120,6 +128,7 @@ class StockFilter:
             # 检查最近day1天内是否有一天成交量≥基准的n倍
             has_spike = (recent_data['vol'] >= base_volume * n).any()
             return has_spike
+
         condition_met = self.stock_base_df.groupby('ts_code').apply(check_volume_condition)
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
@@ -128,6 +137,7 @@ class StockFilter:
         day1 = params.get('day1', 1)
         day2 = params.get('day2', 1)
         n = params.get('n', 100)
+
         def check_volume_ratio(group):
             # 总需要的数据量：day1（近期） + day2（前期）
             required_days = day1 + day2
@@ -148,6 +158,7 @@ class StockFilter:
                 return False
             # 检查近期均值是否达到前期均值的n倍以上
             return (recent_mean / previous_mean) > n
+
         condition_met = self.stock_base_df.groupby('ts_code').apply(check_volume_ratio)
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
@@ -168,6 +179,7 @@ class StockFilter:
             no_missing = not recent_data['volume_ratio'].isna().any()
             # 同时满足两个条件
             return all_above and no_missing
+
         # 按股票代码分组检查条件
         condition_met = self.stock_base_df.groupby('ts_code').apply(check_vol_ratio_condition)
         # 提取符合条件的股票代码
@@ -189,7 +201,7 @@ class StockFilter:
         except Exception as e:
             raise ValueError(f"表达式执行错误: {str(e)}, 转换后的表达式: {expr}")
 
-    def filter_stocks(self, target_date_str: str, conditions: List[Dict], logic_expr: str) -> List:
+    def filter_stocks(self, conditions: List[Dict], logic_expr: str) -> List:
         condition_results: Dict[str, List[str]] = {}
         get_days = 5
         for i, condition in enumerate(conditions):
@@ -203,7 +215,7 @@ class StockFilter:
             day2 = params.get('day2', 0)
             day_sum = day1 + day2
             get_days = max(get_days, day_sum)
-        start_date_str, end_date_str = utils.get_start_date(self.pro, get_days, target_date_str)
+        start_date_str, end_date_str = utils.get_start_date(self.pro, get_days, self.target_date_str)
         print("获取总交易日:", get_days, ", 获取数据开始日期:", start_date_str, ",结束日期:", end_date_str)
         count_stock = self.get_stock_from_tdx(self.tdx_list, start_date_str, end_date_str)
         for i, condition in enumerate(conditions):
@@ -219,5 +231,60 @@ class StockFilter:
             condition_results[condition_type] = result
         print("执行公式:", logic_expr)
         final_mask = self.parse_logic_expression(logic_expr, condition_results)
-        print("最终结果:", final_mask)
+        print("最终结果共", len(final_mask), "只股票, 具体是:", final_mask)
         return final_mask
+
+    def backtest_stocks(self, stock_list: List[str]):
+        start_date_str, end_date_str = utils.get_start_date(self.pro, 10, self.target_date_str)
+        # 3. 批量查询股票数据
+        pipeline = [
+            {
+                "$match": {
+                    "ts_code": {"$in": stock_list},
+                    "trade_date": {"$gte": start_date_str, "$lte": end_date_str},
+                }
+            },
+            {
+                "$sort": {"ts_code": 1, "trade_date": 1}
+            }
+        ]
+        cursor = self.stock_daily_coll.aggregate(pipeline)
+        df = pd.DataFrame(list(cursor))
+        if df.empty:
+            raise ValueError(f"在{start_date_str}之后没有找到指定股票的数据")
+        try:
+            df["date"] = pd.to_datetime(df["trade_date"], format=const.DATE_FORMAT)
+        except ValueError as e:
+            raise ValueError(f"日期转换失败: {str(e)}")
+
+        # 5. 计算每日收益（(当日收盘价/前一日收盘价 - 1)）
+        df = df.sort_values(by=["ts_code", "date"])
+        df["daily_return"] = df.groupby("ts_code")["close"].pct_change()
+
+        # 6. 整理每日收益数据（透视表形式，便于查看）
+        daily_returns = df.pivot(
+            index="trade_date",
+            columns="ts_code",
+            values="daily_return"
+        ).round(4)  # 保留4位小数
+        # 7. 计算每只股票的总收益
+        total_returns = {}
+        for code in stock_list:
+            # 筛选单只股票数据
+            stock_data = df[df["ts_code"] == code].sort_values("date")
+            if len(stock_data) < 2:
+                total_returns[code] = 0.0  # 数据不足时总收益为0
+                continue
+
+            # 总收益 = (最后一天收盘价 / 第一天收盘价) - 1
+            first_close = stock_data.iloc[0]["close"]
+            last_close = stock_data.iloc[-1]["close"]
+            total_return = (last_close / first_close) - 1
+            total_returns[code] = round(total_return, 4)
+
+        # 打印结果
+        print("每日收益（百分比形式）：")
+        print((daily_returns * 100).to_string())  # 转换为百分比显示
+        print("\n总收益（百分比形式）：")
+        for code, ret in total_returns.items():
+            print(f"{code}: {ret * 100:.2f}%")
