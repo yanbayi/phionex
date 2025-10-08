@@ -1,8 +1,9 @@
 from util import stock_stratege_ctl, tdx_stratege_ctl
 
 ############################################ 挑选日期 ################################################
-date_str = "20250918"
-is_need_backtest = True
+date_str = "20250918"  # 预测哪一天的股票
+is_need_backtest = False  # 是否要回测
+backtest_day = 10  # 回测跑的天数（自然日）
 ########################################## 概念指标条件 ###############################################
 # 板块：日线挑选5天涨幅最高，至少有3天在涨，并且成交额大的20个概念板块
 tdx_conditions = [
@@ -26,17 +27,19 @@ stock_conditions = [
     # 最近day1天内有过bbi上穿
     {"type": "1", "name": "BBI上穿", "enable": True, "params": {"day1": 5}},
     # 最近day1天中有day2天在涨，且其中有day3天涨幅超过n%
-    {"type": "2", "name": "涨幅条件1", "enable": True, "params": {"day1": 15, "day2": 5, "day3": 1, "n": 8}},
+    {"type": "2", "name": "涨幅条件1", "enable": False, "params": {"day1": 15, "day2": 5, "day3": 1, "n": 8}},
     # 最近day1天涨幅超过n%
-    {"type": "3", "name": "涨幅条件2", "enable": True, "params": {"day1": 10, "n": 10}},
+    {"type": "3", "name": "涨幅条件2", "enable": False, "params": {"day1": 10, "n": 10}},
     # 最近day1天内存在某一天的成交量达到成交量均值的n倍以上
-    {"type": "4", "name": "成交量条件1", "enable": True, "params": {"day1": 5, "n": 1.3}},
+    {"type": "4", "name": "成交量条件1", "enable": False, "params": {"day1": 5, "n": 1.3}},
     # 最近day1天成交量均值高于最近(day1天前的)day2天成交量均值n倍以上
     {"type": "5", "name": "成交量条件2", "enable": False, "params": {"day1": 3, "day2": 10, "n": 1.5}},
     # 最近day1天量比均大于n
-    {"type": "6", "name": "量比条件1", "enable": False, "params": {"day1": 3, "n": 1.5}}
+    {"type": "6", "name": "量比条件1", "enable": False, "params": {"day1": 3, "n": 1.5}},
+    # 最近day1天内，ma10上穿ma20 n 次以上
+    {"type": "7", "name": "均线条件1", "enable": True, "params": {"day1": 60, "n": 2}}
 ]
-stock_logic_expr = "1 and 2 and 3 and 4"
+stock_logic_expr = "1 & 7"
 
 if __name__ == "__main__":
     # 筛选所有概念板块
@@ -52,5 +55,5 @@ if __name__ == "__main__":
     # 回测数据
     if is_need_backtest:
         print("=" * 30, "开始回测")
-        stock_filter.backtest_stocks(get_stock_list)
+        stock_filter.backtest_stocks(get_stock_list, backtest_day)
         print("=" * 30, "完成回测")

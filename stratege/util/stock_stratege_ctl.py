@@ -17,6 +17,7 @@ class StockFilter:
             "4": self.filter_vol1,
             "5": self.filter_vol2,
             "6": self.filter_vol_ratio1,
+            "7": self.filter_ma1
         }
         self.pro = tushare_ctl.init_tushare_client()
         self.stock_basic_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)
@@ -30,6 +31,7 @@ class StockFilter:
         # day3 = params.get('day3', 1)
         # n = params.get('n', 100)
         # m = params.get('m', 100)
+        # j = params.get('j', 100)
 
     def get_stock_from_tdx(self, get_tdx_list: List, start_date_str: str, end_date_str: str) -> int:
         stock = self.tdx_member_coll.find({"ts_code": {"$in": get_tdx_list}}, {"con_code": 1})
@@ -186,6 +188,41 @@ class StockFilter:
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
 
+
+    def filter_ma1(self, params: Dict) -> List:
+        # 最近day1天内，ma10上穿ma20 n 次以上
+        # {"type": "7", "name": "均线条件1", "enable": True, "params": {"day1": 60, "n": 2}}
+        day1 = params.get('day1', 1)
+        n = params.get('n', 2)
+
+        def check_crossover_condition(group):
+            # 取最近day1天的数据
+            recent_data = group.tail(day1)
+            # 数据不足2天无法形成交叉，直接排除
+            if len(recent_data) < 2:
+                return False
+            # 标记MA10在MA20上方的日期
+            recent_data['ma10_above'] = recent_data['ma10'] > recent_data['ma20']
+
+            # 识别上穿信号：前一天在下方，当天在上方
+            # 使用fill_value=False处理第一天无前置数据的情况
+            crossover_signals = (
+                    recent_data['ma10_above'] &
+                    ~recent_data['ma10_above'].shift(1, fill_value=False)
+            )
+
+            # 统计上穿次数并判断是否达标
+            return crossover_signals.sum() >= n
+
+        # 按股票代码分组检查条件
+        condition_met = self.stock_base_df.groupby('ts_code').apply(check_crossover_condition)
+
+        # 提取符合条件的股票代码
+        qualified_stocks = condition_met[condition_met].index.tolist()
+
+        return qualified_stocks
+
+
     def parse_logic_expression(self, logic_expr: str, condition_results: Dict[str, List[str]]) -> List:
         expr = logic_expr.replace('（', '(').replace('）', ')')
         expr = expr.replace('and', '&').replace('or', '|')
@@ -234,11 +271,11 @@ class StockFilter:
         print("最终结果共", len(final_mask), "只股票, 具体是:", final_mask)
         return final_mask
 
-    def backtest_stocks(self, stock_list: List[str]):
+    def backtest_stocks(self, stock_list: List[str], backtest_day: int):
         start_date_str, end_date_str = utils.get_start_date(self.pro, 1, self.target_date_str)
         start_date_str = end_date_str
         end_date = datetime.strptime(start_date_str, const.DATE_FORMAT)
-        end_date += timedelta(days=10)
+        end_date += timedelta(days=backtest_day)
         end_date_str = end_date.strftime(const.DATE_FORMAT)
         # 3. 批量查询股票数据
         pipeline = [
