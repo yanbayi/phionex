@@ -17,7 +17,8 @@ class StockFilter:
             "4": self.filter_vol1,
             "5": self.filter_vol2,
             "6": self.filter_vol_ratio1,
-            "7": self.filter_ma1
+            "7": self.filter_ma1,
+            "8": self.filter_limit_up3,
         }
         self.pro = tushare_ctl.init_tushare_client()
         self.stock_basic_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)
@@ -110,6 +111,25 @@ class StockFilter:
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
 
+    def filter_limit_up3(self, params: Dict) -> List:
+        day1 = params.get('day1', 1)
+        n = params.get('n', 1)
+
+        def check_growth_condition(group):
+            recent_data = group.tail(day1)
+            if len(recent_data) < day1:
+                return False
+            # 计算day1天内的累计涨幅：(最后一天收盘价 / 第一天收盘价 - 1) * 100
+            first_close = recent_data.iloc[0]['close']
+            last_close = recent_data.iloc[-1]['close']
+            total_growth = (last_close / first_close - 1) * 100
+            # 判断是否超过涨幅阈值
+            return total_growth < n
+
+        condition_met = self.stock_base_df.groupby('ts_code').apply(check_growth_condition)
+        qualified_stocks = condition_met[condition_met].index.tolist()
+        return qualified_stocks
+
     def filter_vol1(self, params: Dict) -> List:
         day1 = params.get('day1', 1)
         n = params.get('n', 100)
@@ -188,7 +208,6 @@ class StockFilter:
         qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
 
-
     def filter_ma1(self, params: Dict) -> List:
         # 最近day1天内，ma10上穿ma20 n 次以上
         # {"type": "7", "name": "均线条件1", "enable": True, "params": {"day1": 60, "n": 2}}
@@ -221,7 +240,6 @@ class StockFilter:
         qualified_stocks = condition_met[condition_met].index.tolist()
 
         return qualified_stocks
-
 
     def parse_logic_expression(self, logic_expr: str, condition_results: Dict[str, List[str]]) -> List:
         expr = logic_expr.replace('（', '(').replace('）', ')')

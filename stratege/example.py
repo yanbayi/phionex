@@ -37,7 +37,9 @@ stock_conditions = [
     # 最近day1天量比均大于n
     {"type": "6", "name": "量比条件1", "enable": False, "params": {"day1": 3, "n": 1.5}},
     # 最近day1天内，ma10上穿ma20 n 次以上
-    {"type": "7", "name": "均线条件1", "enable": True, "params": {"day1": 60, "n": 2}}
+    {"type": "7", "name": "均线条件1", "enable": True, "params": {"day1": 60, "n": 2}},
+    # 最近day1天涨幅不超过n%
+    {"type": "8", "name": "涨幅条件3", "enable": False, "params": {"day1": 10, "n": 1}},
 ]
 stock_logic_expr = "1 & 7"
 
