@@ -45,9 +45,15 @@ params = {
         {"type": "8", "name": "涨幅条件3", "enable": False, "params": {"day1": 10, "n": 1}},
         # 最近day1天排除最近day2天的数据内，满足 n <= (boll_upper-boll_lower)/close * 100 <= m的股票,
         # day1=5, day2=2 → 20250901、20250902、20250903、20250904、20250905 → 20250901、20250902、20250903
-        {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10, "day2": 2,"n": 5, "m": 8}}
+        {"type": "9", "name": "BOLL条件1", "enable": False, "params": {"day1": 10, "day2": 2,"n": 5, "m": 8}},
+        # 最近day1天排除最近day2天的数据内，满足 close > boll_mid的股票
+        # day1=5, day2=2 → 20250901、20250902、20250903、20250904、20250905 → 20250901、20250902、20250903
+        {"type": "10", "name": "BOLL条件2", "enable": True, "params": {"day1": 10, "day2": 2}},
+        # 最近day1天排除最近day2天的数据内，满足 macd_dif > boll_mid的股票
+        # day1=5, day2=2 → 20250901、20250902、20250903、20250904、20250905 → 20250901、20250902、20250903
+        {"type": "11", "name": "MACD条件1", "enable": False, "params": {"day1": 10, "day2": 2}}
     ],
-    "stock_logic_expr": "9"
+    "stock_logic_expr": "10"
 }
 
 if __name__ == "__main__":

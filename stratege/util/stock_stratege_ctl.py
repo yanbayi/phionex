@@ -21,6 +21,8 @@ class StockFilter:
             "7": self.filter_ma1,
             "8": self.filter_limit_up3,
             "9": self.filter_boll1,
+            "10": self.filter_boll2,
+            "11": self.filter_macd1,
         }
         self.pro = tushare_ctl.init_tushare_client()
         self.stock_basic_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)
@@ -305,6 +307,37 @@ class StockFilter:
                 available_cols = [col for col in display_cols if col in data.columns]
                 print(data[available_cols].to_string(index=False))
 
+        return qualified_stocks
+
+    def filter_boll2(self, params: Dict) -> List:
+        day1 = params.get('day1', 1)
+        day2 = params.get('day2', 1)
+        def check_close_above_mid(group):
+            # 取最近day天的数据
+            recent_data = group.tail(day1).head(day2 * -1)
+            # 验证区间数据量是否正确
+            if len(recent_data) != (day1 - day2):
+                return False
+            all_above = (recent_data['close'] > recent_data['boll_mid']).all()
+            return all_above
+        condition_met = self.stock_base_df.groupby('ts_code').apply(check_close_above_mid)
+        qualified_stocks = condition_met[condition_met].index.tolist()
+        return qualified_stocks
+
+    def filter_macd1(self, params: Dict) -> List:
+        day1 = params.get('day1', 1)
+        day2 = params.get('day2', 1)
+
+        def check_close_above_mid(group):
+            # 取最近day天的数据
+            recent_data = group.tail(day1).head(day2 * -1)
+            # 验证区间数据量是否正确
+            if len(recent_data) != (day1 - day2):
+                return False
+            all_above = (recent_data['macd_dif'] > 0).all()
+            return all_above
+        condition_met = self.stock_base_df.groupby('ts_code').apply(check_close_above_mid)
+        qualified_stocks = condition_met[condition_met].index.tolist()
         return qualified_stocks
 
     def parse_logic_expression(self, logic_expr: str, condition_results: Dict[str, List[str]]) -> List:
