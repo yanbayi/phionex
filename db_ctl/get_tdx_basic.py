@@ -12,7 +12,9 @@ def fetch_tdx_index_data(pro, ts_codes: List[str] = None, trade_date: str = None
                          idx_types: List[str] = None) -> pd.DataFrame:
     # 处理默认交易日期
     if not trade_date:
-        trade_date = utils.get_end_date(pro, datetime.now())
+        now_date = datetime.now()
+        now_date -= timedelta(days=1)
+        trade_date = utils.get_end_date(pro, now_date)
         trade_date = trade_date.strftime(const.DATE_FORMAT)
         print(f"未指定交易日期，使用默认日期: {trade_date}")
     all_data = []

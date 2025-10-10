@@ -7,6 +7,7 @@ from db_ctl.util import mongoDb_ctl
 from common import const, utils
 from data_ctl import tushare_ctl
 
+is_check = False
 
 class StockFilter:
     def __init__(self, get_tdx_list: List, target_date_str: str, is_use_tdx_conditions: bool):
@@ -19,6 +20,7 @@ class StockFilter:
             "6": self.filter_vol_ratio1,
             "7": self.filter_ma1,
             "8": self.filter_limit_up3,
+            "9": self.filter_boll1,
         }
         self.pro = tushare_ctl.init_tushare_client()
         self.stock_basic_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)
@@ -244,6 +246,64 @@ class StockFilter:
 
         # 提取符合条件的股票代码
         qualified_stocks = condition_met[condition_met].index.tolist()
+
+        return qualified_stocks
+
+    def filter_boll1(self, params: Dict) -> List:
+        # 最近day1天 ((boll_upper-boll_lower)/boll_mid * 100)/close * 100 一直在n ~ m区间的股票
+        #  {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10, "n": 5, "m": 8}}
+        day1 = params.get('day1', 1)
+        n = params.get('n', 5)
+        m = params.get('m', 8)
+        stock_calculations = {} # aa
+        def check_band_ratio_condition(group):
+            ts_code = group['ts_code'].iloc[0]  # aa 获取当前股票代码
+
+            # 取最近day天的数据
+            recent_data = group.tail(day1)
+
+            # 数据不足day天则排除
+            if len(recent_data) < day1:
+                return False
+
+            # 计算BOLL带宽 = 上轨 - 下轨
+            recent_data['boll_bandwidth'] = recent_data['boll_upper'] - recent_data['boll_lower']
+
+            # 计算(带宽/收盘价)的百分比
+            # 避免收盘价为0导致除零错误
+            recent_data['band_ratio_pct'] = (recent_data['boll_bandwidth'] / recent_data['close']) * 100
+
+            # 检查是否存在收盘价为0或比例计算异常的情况
+            if recent_data['band_ratio_pct'].isna().any():
+                print(recent_data.to_string(index=False))
+                return False
+
+            # 检查所有天数的比例是否都在[n%, m%]区间内
+            within_range = (
+                    (recent_data['band_ratio_pct'] >= n) &
+                    (recent_data['band_ratio_pct'] <= m)
+            ).all()
+            stock_calculations[ts_code] = (within_range, recent_data) # aa
+            return within_range
+
+        # 按股票代码分组检查条件
+        condition_met = self.stock_base_df.groupby('ts_code').apply(check_band_ratio_condition)
+        # 提取符合条件的股票代码
+        qualified_stocks = condition_met[condition_met].index.tolist()
+
+        if is_check:
+            print("\n===== BOLL条件验证数据 =====")
+            for ts_code in qualified_stocks:
+                is_qualified, data = stock_calculations[ts_code]
+                print(f"\n股票代码: {ts_code} (符合条件: {is_qualified})")
+                # 选择关键列打印，包含原始数据和计算结果
+                display_cols = [
+                    'trade_date', 'boll_upper', 'boll_lower', 'boll_mid',
+                    'close', 'boll_bandwidth', 'band_ratio_pct'
+                ]
+                # 只显示存在的列
+                available_cols = [col for col in display_cols if col in data.columns]
+                print(data[available_cols].to_string(index=False))
 
         return qualified_stocks
 
