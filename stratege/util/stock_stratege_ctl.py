@@ -314,7 +314,10 @@ class StockFilter:
         day2 = params.get('day2', 1)
         def check_close_above_mid(group):
             # 取最近day天的数据
-            recent_data = group.tail(day1).head(day2 * -1)
+            if day2 > 0:
+                recent_data = group.tail(day1).head(day2 * -1)
+            else:
+                recent_data = group.tail(day1)
             # 验证区间数据量是否正确
             if len(recent_data) != (day1 - day2):
                 return False
@@ -327,10 +330,12 @@ class StockFilter:
     def filter_macd1(self, params: Dict) -> List:
         day1 = params.get('day1', 1)
         day2 = params.get('day2', 1)
-
         def check_close_above_mid(group):
             # 取最近day天的数据
-            recent_data = group.tail(day1).head(day2 * -1)
+            if day2 > 0:
+                recent_data = group.tail(day1).head(day2 * -1)
+            else:
+                recent_data = group.tail(day1)
             # 验证区间数据量是否正确
             if len(recent_data) != (day1 - day2):
                 return False

@@ -72,8 +72,11 @@ print(df.to_string())
 
 # 2 5
 a= 10
-b = 2
-df = df.tail(a).head(b*-1)
+b = 0
+if b >0:
+    df = df.tail(a).head(b*-1)
+else:
+    df = df.tail(a)
 print(df.to_string())
 # df = pro.tdx_index(trade_date="20250922",idx_type="概念板块")
 # print(df.to_string())
