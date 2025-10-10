@@ -4,6 +4,7 @@ from util import stock_stratege_ctl, tdx_stratege_ctl
 date_str = "20250918"  # 预测哪一天的股票
 is_need_backtest = False  # 是否要回测
 backtest_day = 10  # 回测跑的天数（自然日）
+is_use_tdx_conditions = True  # False不筛选指标，True筛选指标
 ########################################## 概念指标条件 ###############################################
 # 板块：日线挑选5天涨幅最高，至少有3天在涨，并且成交额大的20个概念板块
 tdx_conditions = [
@@ -45,13 +46,15 @@ stock_logic_expr = "1 & 7"
 
 if __name__ == "__main__":
     # 筛选所有概念板块
-    print("=" * 30, "开始筛选概念、板块")
-    tdx_filter = tdx_stratege_ctl.TdxFilter()
-    get_tdx_list = tdx_filter.filter_stocks(date_str, tdx_conditions)
-    print("=" * 30, "完成筛选概念、板块", "\n" * 2)
+    get_tdx_list = []
+    if is_use_tdx_conditions:
+        print("=" * 30, "开始筛选概念、板块")
+        tdx_filter = tdx_stratege_ctl.TdxFilter()
+        get_tdx_list = tdx_filter.filter_stocks(date_str, tdx_conditions)
+        print("=" * 30, "完成筛选概念、板块", "\n" * 2)
     # 基于板块筛选股票
     print("=" * 30, "开始筛选股票")
-    stock_filter = stock_stratege_ctl.StockFilter(get_tdx_list, date_str)
+    stock_filter = stock_stratege_ctl.StockFilter(get_tdx_list, date_str, is_use_tdx_conditions)
     get_stock_list = stock_filter.filter_stocks(stock_conditions, stock_logic_expr)
     print("=" * 30, "完成筛选股票", "\n" * 2)
     # 回测数据

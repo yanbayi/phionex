@@ -9,7 +9,7 @@ from data_ctl import tushare_ctl
 
 
 class StockFilter:
-    def __init__(self, get_tdx_list: List, target_date_str: str):
+    def __init__(self, get_tdx_list: List, target_date_str: str, is_use_tdx_conditions: bool):
         self.condition_handlers = {
             "1": self.filter_bbi_crossover,
             "2": self.filter_limit_up1,
@@ -27,6 +27,7 @@ class StockFilter:
         self.tdx_list = get_tdx_list
         self.stock_base_df = pd.DataFrame()
         self.target_date_str = target_date_str
+        self.is_use_tdx_conditions = is_use_tdx_conditions
         # day1 = params.get('day1', 1)
         # day2 = params.get('day2', 1)
         # day3 = params.get('day3', 1)
@@ -38,9 +39,14 @@ class StockFilter:
         stock = self.tdx_member_coll.find({"ts_code": {"$in": get_tdx_list}}, {"con_code": 1})
         stock_list = set([doc["con_code"] for doc in stock])
         print("概念板块中包含股票:", len(stock_list), "只")
-        stock_cursor = self.stock_daily_coll.find(
-            {"ts_code": {"$in": list(stock_list)}, "trade_date": {"$gte": start_date_str, "$lte": end_date_str}},
-            {"_id": 0})
+        if not self.is_use_tdx_conditions:
+            stock_cursor = self.stock_daily_coll.find(
+                {"trade_date": {"$gte": start_date_str, "$lte": end_date_str}},
+                {"_id": 0})
+        else:
+            stock_cursor = self.stock_daily_coll.find(
+                {"ts_code": {"$in": list(stock_list)}, "trade_date": {"$gte": start_date_str, "$lte": end_date_str}},
+                {"_id": 0})
         df = pd.DataFrame(list(stock_cursor))
         try:
             df["date"] = pd.to_datetime(df["trade_date"], format=const.DATE_FORMAT)
@@ -319,18 +325,20 @@ class StockFilter:
         # 5. 计算每日收益（(当日收盘价/前一日收盘价 - 1)）
         df = df.sort_values(by=["ts_code", "date"])
         result_dfs = []  # 存储每只股票的处理结果
+        total_returns = {}  # 存储每只股票的总收益
         for code in stock_list:
             # 筛选单只股票数据
             stock_data = df[df["ts_code"] == code].copy()
             if len(stock_data) < 2:
+                total_returns[code] = 0.0  # 数据不足时总收益记为0
                 continue  # 数据不足则跳过
             # 计算每日收益 (当日收盘价/前一日收盘价 - 1)
             stock_data["daily_return"] = stock_data["close"].pct_change()
-            # 计算阶段性总收益 (从起始日到当日的累计收益)
-            # 公式: (当日收盘价 / 起始日收盘价) - 1
             start_close = stock_data.iloc[0]["close"]
             stock_data["cumulative_total"] = (stock_data["close"] / start_close) - 1
-
+            # 记录最终总收益（最后一个交易日的累计收益）
+            final_total = stock_data["cumulative_total"].iloc[-1]
+            total_returns[code] = final_total
             # 重命名列，区分不同股票
             stock_data = stock_data.rename(columns={
                 "daily_return": f"{code}_daily",
@@ -353,3 +361,14 @@ class StockFilter:
         # 打印结果
         print("每日收益（百分比形式）：")
         print((returns_df * 100).to_string())  # 转换为百分比显示
+
+        # 打印每只股票的总收益
+        print("\n每只股票的总收益（百分比）：")
+        for code, ret in total_returns.items():
+            print(f"{code}: {ret * 100:.2f}%")
+
+        # 计算并打印所有股票的平均总收益
+        valid_returns = [ret for ret in total_returns.values() if ret != 0.0]
+        if valid_returns:
+            avg_return = sum(valid_returns) / len(valid_returns)
+            print(f"\n所有股票的平均总收益：{avg_return * 100:.2f}%")
