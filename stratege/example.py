@@ -43,8 +43,9 @@ params = {
         {"type": "7", "name": "均线条件1", "enable": False, "params": {"day1": 60, "n": 3}},
         # 最近day1天涨幅不超过n%
         {"type": "8", "name": "涨幅条件3", "enable": False, "params": {"day1": 10, "n": 1}},
-        # 最近day1天满足 n <= (boll_upper-boll_lower)/close * 100 <= m的股票
-        {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10, "n": 5, "m": 8}}
+        # 最近day1天排除最近day2天的数据内，满足 n <= (boll_upper-boll_lower)/close * 100 <= m的股票,
+        # day1=5, day2=2 → 20250901、20250902、20250903、20250904、20250905 → 20250901、20250902、20250903
+        {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10, "day2": 2,"n": 5, "m": 8}}
     ],
     "stock_logic_expr": "9"
 }

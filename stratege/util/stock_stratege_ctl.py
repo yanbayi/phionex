@@ -54,7 +54,7 @@ class StockFilter:
             df["date"] = pd.to_datetime(df["trade_date"], format=const.DATE_FORMAT)
         except ValueError as e:
             raise ValueError(f"日期转换失败: {str(e)}")
-        self.stock_base_df = df.sort_values(by=['ts_code', 'date']).reset_index(drop=False)  # 按日期降序排列
+        self.stock_base_df = df.sort_values(by=['ts_code', 'date']).reset_index(drop=False)
         return self.stock_base_df.groupby('ts_code').ngroups
 
     def filter_bbi_crossover(self, params: Dict) -> List:
@@ -250,20 +250,20 @@ class StockFilter:
         return qualified_stocks
 
     def filter_boll1(self, params: Dict) -> List:
-        # 最近day1天 ((boll_upper-boll_lower)/boll_mid * 100)/close * 100 一直在n ~ m区间的股票
-        #  {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10, "n": 5, "m": 8}}
+        # 最近day1天排除最近day2天内的数据 ((boll_upper-boll_lower)/boll_mid * 100)/close * 100 一直在n ~ m区间的股票
+        #  {"type": "9", "name": "BOLL条件1", "enable": True, "params": {"day1": 10,"day2": 10, "n": 5, "m": 8}}
         day1 = params.get('day1', 1)
-        n = params.get('n', 5)
-        m = params.get('m', 8)
+        day2 = params.get('day2', 1)
+        n = params.get('n', 10)
+        m = params.get('m', 2)
         stock_calculations = {} # aa
         def check_band_ratio_condition(group):
             ts_code = group['ts_code'].iloc[0]  # aa 获取当前股票代码
 
             # 取最近day天的数据
-            recent_data = group.tail(day1)
-
-            # 数据不足day天则排除
-            if len(recent_data) < day1:
+            recent_data = group.tail(day1).head(day2*-1)
+            # 验证区间数据量是否正确
+            if len(recent_data) != (day1 - day2):
                 return False
 
             # 计算BOLL带宽 = 上轨 - 下轨
