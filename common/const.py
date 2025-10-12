@@ -17,9 +17,9 @@ TDX_DAILY = "a_tdx_daily"  # 通达信板块行情
 DATE_FORMAT = "%Y%m%d"
 
 # 指标公式
-BBI_PERIODS = [3, 6, 12, 20, 24]  # BBI指数计算周期（3/6/12/20 24日均线）
-MA_PERIODS = [5, 6, 10, 20, 60]
-MACD_PERIODS = [12, 26, 9]
-RSI_PERIODS = [6, 12, 24]
+BBI_PERIODS = [3, 6, 12, 20]
+MA_PERIODS = [5, 10, 20, 60]
+MACD1_PERIODS = [12, 26, 9]
+MACD2_PERIODS = [60, 130, 45]
 # 指标获取
 VALID_IDX_TYPES = ["概念板块", "行业板块", "风格板块", "地区板块"]

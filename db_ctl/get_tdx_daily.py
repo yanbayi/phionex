@@ -1,17 +1,15 @@
 # 通达信板块日线获取
 import time
 from datetime import datetime
-
 import pandas as pd
 from pymongo import errors
 from tqdm import tqdm  # 进度条库（核心新增）
-
 from common import const, utils
 from data_ctl import tushare_ctl
 from util import mongoDb_ctl
 
 
-def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col, update) -> int:
+def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col) -> int:
     data_list = data.to_dict("records")
     for doc in data_list:
         for key, value in doc.items():
@@ -25,15 +23,11 @@ def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col, update) -> int:
                     print("缺失字段: ", key)
     try:
         inserted_count = 0
-        if update:
-            for data in data_list:
-                result = tdx_daily_col.update_one({"ts_code": data["ts_code"], "trade_date": data["trade_date"]},
-                                                  {"$set": data}, upsert=True)
-                if result.upserted_id:
-                    inserted_count += 1
-        else:
-            result = tdx_daily_col.insert_many(data_list, ordered=False)
-            inserted_count = len(result.inserted_ids)
+        for data in data_list:
+            result = tdx_daily_col.update_one({"ts_code": data["ts_code"], "trade_date": data["trade_date"]},
+                                              {"$set": data}, upsert=True)
+            if result.upserted_id:
+                inserted_count += 1
         return inserted_count
     except errors.BulkWriteError as e:
         details = e.details
@@ -53,23 +47,21 @@ def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col, update) -> int:
         return 0
 
 
-def main_get_tdx_daily(days, update):
+def main_get_tdx_daily():
     print("=" * 60)
-    print(f"启动通达信板块{days}日日线数据增量拉取流程")
+    print(f"启动通达信板块日线更新")
     print("=" * 60)
     pro = tushare_ctl.init_tushare_client()
     tdx_index_coll = mongoDb_ctl.init_mongo_collection(const.TDX_INDEX)
     tdx_daily_coll = mongoDb_ctl.init_mongo_collection(const.TDX_DAILY)
     conf_coll = mongoDb_ctl.init_mongo_collection(const.CONF_COLL)
-    run, start_date, end_date, update = utils.get_start_end_date(pro, days, update, True)
+    run, start_date, end_date = utils.get_start_end_date(pro, True)
     if not run:
         return
-    if not update:
-        tdx_daily_coll.delete_many({})  # 全量更新先清空数据
     start_date_str = start_date.strftime(const.DATE_FORMAT)
     end_date_str = end_date.strftime(const.DATE_FORMAT)
     print(
-        f"是否需要更新数据：{run}， 是否全量更新数据：{not update}， 获取日线开始日期：{start_date_str}, 获取日线结束日期: {end_date_str}")
+        f"是否需要更新数据：{run}， 获取日线开始日期：{start_date_str}, 获取日线结束日期: {end_date_str}")
 
     try:
         stock_cursor = tdx_index_coll.find({}, projection={"ts_code": 1, "_id": 0})
@@ -91,7 +83,6 @@ def main_get_tdx_daily(days, update):
                 if df.empty:
                     print(f"板块{ts_code}在{start_date}~{end_date}期间无数据")
                     continue
-                # print(df.to_string())
                 df["up_time"] = datetime.now()
                 mongo_fields = ["ts_code", "trade_date", "open", "high", "low", "close", "pre_close", "change",
                                 "pct_change", "vol", "amount", "rise", "vol_ratio", "turnover_rate", "swing", "up_num",
@@ -104,7 +95,6 @@ def main_get_tdx_daily(days, update):
             batch_inserted = insert_tdx_daily_to_mongo(
                 data=df,
                 tdx_daily_col=tdx_daily_coll,
-                update=update
             )
             total_inserted += batch_inserted
             time.sleep(0.5)
@@ -114,14 +104,11 @@ def main_get_tdx_daily(days, update):
     conf_coll.update_one({"name": "tdx_daily_up_date"}, {"$set": {"value": end_date_str}})
 
     print("=" * 60)
-    print(f"通达信板块{days}日日线数据拉取流程完成")
+    print(f"通达信板块日线数据拉取流程完成")
     print(f"总统计：处理{len(stock_list)}个板块，新增{total_inserted}条日线数据")
     print(f"覆盖交易日：{start_date_str} ~ {end_date_str}")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    try:
-        main_get_tdx_daily(days=60, update=True)  # 追新or全量更新
-    except Exception as e:
-        print(f"脚本执行失败，）")
+    main_get_tdx_daily(days=60, update=True)

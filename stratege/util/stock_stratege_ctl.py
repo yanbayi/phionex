@@ -17,12 +17,11 @@ class StockFilter:
             "3": self.filter_limit_up2,
             "4": self.filter_vol1,
             "5": self.filter_vol2,
-            "6": self.filter_vol_ratio1,
-            "7": self.filter_ma1,
-            "8": self.filter_limit_up3,
-            "9": self.filter_boll1,
-            "10": self.filter_boll2,
-            "11": self.filter_macd1,
+            "6": self.filter_ma1,
+            "7": self.filter_limit_up3,
+            "8": self.filter_boll1,
+            "9": self.filter_boll2,
+            "10": self.filter_macd1,
         }
         self.pro = tushare_ctl.init_tushare_client()
         self.stock_basic_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_BASIC_COLL)

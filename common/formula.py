@@ -1,56 +1,24 @@
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from db_ctl.util import mongoDb_ctl
 from common import const
-from typing import List, Dict, Optional
-import chinadata.ca_data as ts
 
-# asi asit   dfma atr dmi dpo  expma  ktn ema  mass  mfi  mtm  psy   roc  taq  trix vr wr  xsii bias cci emv
-
-# 趋势指标 bbi macd? sar?
-# 反趋势指标 kdj rsi
-# 压力支撑指标  boll
-# 量价指标 obv
-# 量能指标 brar cr
-# 多日均线 ma5 ma6 ma10 ma20 ma60
 def formula_main(indicators: str, data: pd.DataFrame) -> pd.DataFrame:
-    required_columns = ['open', 'high', 'low', 'close', 'trade_date']
+    required_columns = ['ts_code', 'trade_date', 'date', 'open_q', 'high_q', 'low_q', 'close_q']
     if not set(required_columns).issubset(data.columns):
         missing = [col for col in required_columns if col not in data.columns]
         raise ValueError(f"数据缺少必要的列: {missing}")
-    try:
-        data["date"] = pd.to_datetime(data["trade_date"], format=const.DATE_FORMAT)
-    except ValueError as e:
-        raise ValueError(f"日期转换失败: {str(e)}")
-    data = data.sort_values(by="date").reset_index(drop=True) #按日期升序排列（确保均线计算顺序正确）
-
     match indicators:
-        case "ma":  # 计算多日均线 5 6 10 20 60
+        case "ma":  # 计算多日均线
             return ma_formula(data)
         case "bbi":  # 多空指数 3 6 12 20/3 6 12 24
             return bbi_formula(data)
-        case "macd":  # 指数平滑异同移动平均线
-            return macd_formula(data)
-        # case "sar":  #
-        #     return sar_formula(data)
-        # case "kdj":  #
-        #     return kdj_formula(data)
-        case "rsi":  #
-            return rsi_formula(data)
-        # case "":  #
-        #     return brar_formula(data)
-        # case "":  #
-        #     return cci_formula(data)
-        # case "ma":  #
-        #     return ma_formula(data)
-        # case "":  #
-        #     return emv_formula(data)
-        # case "":  #
-        #     return kdj_formula(data)
-        # case "":  # 1
-        #     return macd_formula(data)
+        case "macd1":  # 指数平滑异同移动平均线12 26 9
+            return macd1_formula(data)
+        case "macd2":  # 指数平滑异同移动平均线60 130 45
+            return macd2_formula(data)
+        case "kdj": # 9 3 3
+            return kdj_formula(data)
+        case "boll":
+            return kdj_formula(data)
         case _:
             return data
 
@@ -80,164 +48,166 @@ def bbi_formula(data: pd.DataFrame) -> pd.DataFrame:
                 min_periods=period
             ).mean()
         valid_mask20 = group[["MA0", "MA1", "MA2", "MA3"]].notna().all(axis=1)
-        valid_mask24 = group[["MA0", "MA1", "MA2", "MA4"]].notna().all(axis=1)
+        # valid_mask24 = group[["MA0", "MA1", "MA2", "MA4"]].notna().all(axis=1)
         group["bbi20"] = 0.0
-        group["bbi24"] = 0.0
+        # group["bbi24"] = 0.0
         group.loc[valid_mask20, "bbi20"] = group.loc[valid_mask20, ["MA0", "MA1", "MA2", "MA3"]].sum(axis=1) / 4.0
-        group.loc[valid_mask24, "bbi24"] = group.loc[valid_mask24, ["MA0", "MA1", "MA2", "MA4"]].sum(axis=1) / 4.0
-        group = group.drop(columns=["MA0", "MA1", "MA2", "MA3", "MA4"])
+        # group.loc[valid_mask24, "bbi24"] = group.loc[valid_mask24, ["MA0", "MA1", "MA2", "MA4"]].sum(axis=1) / 4.0
+        group = group.drop(columns=["MA0", "MA1", "MA2", "MA3"])
         return group
 
     df_result = data.groupby("ts_code", group_keys=False).apply(calculate_bbi_per_stock, include_groups=False)
     df_result["bbi20"] = df_result["bbi20"].round(5)  # 可选：保留2位小数，便于阅读
-    df_result["bbi24"] = df_result["bbi24"].round(5)  # 可选：保留2位小数，便于阅读
+    # df_result["bbi24"] = df_result["bbi24"].round(5)  # 可选：保留2位小数，便于阅读
 
     return df_result
 
-def macd_formula(data: pd.DataFrame) -> pd.DataFrame:
-    fast_period = const.MACD_PERIODS[0]
-    slow_period = const.MACD_PERIODS[1]
-    signal_period = const.MACD_PERIODS[2]
-    def calc_macd_per_stock(group):
-        # 按日期升序排列（确保时间顺序正确）
-        group = group.sort_values('trade_date').reset_index(drop=True)
-        n = len(group)
+def macd1_formula(data: pd.DataFrame) -> pd.DataFrame:
+    fast_period = const.MACD1_PERIODS[0]
+    slow_period = const.MACD1_PERIODS[1]
+    signal_period = const.MACD1_PERIODS[2]
+    def calculate_macd_per_stock(group):
+        # 计算12日和26日指数移动平均线（EMA）
+        group['ema12'] = group['close'].ewm(span=fast_period, min_periods=fast_period).mean()
+        group['ema26'] = group['close'].ewm(span=slow_period, min_periods=slow_period).mean()
+        # 计算DIF（离差值）= EMA12 - EMA26
+        group['macd_dif'] = group['ema12'] - group['ema26']
+        # 计算DEA（信号线）= DIF的9日指数移动平均线
+        group['macd_dea'] = group['macd_dif'].ewm(span=signal_period, min_periods=signal_period).mean()
+        # 计算MACD柱状线 = (DIF - DEA) * 2
+        group['macd'] = (group['macd_dif'] - group['macd_dea']) * 2
+        # 初始化无效值为0（数据不足时）
+        valid_mask = group[['macd_dif', 'macd_dea', 'macd']].notna().all(axis=1)
+        group['macd_dif'] = group['macd_dif'].where(valid_mask, 0)
+        group['macd_dea'] = group['macd_dea'].where(valid_mask, 0)
+        group['macd'] = group['macd'].where(valid_mask, 0)
+        # 删除临时计算的EMA列
+        group = group.drop(columns=['ema12', 'ema26'])
+        return group
+    # 按股票代码分组计算MACD，确保每只股票独立计算
+    df_result = data.groupby('ts_code', group_keys=False).apply(
+        calculate_macd_per_stock,
+        include_groups=False
+    )
+    # 保留小数位数，避免精度问题
+    df_result['macd_dif'] = df_result['macd_dif'].round(5)
+    df_result['macd_dea'] = df_result['macd_dea'].round(5)
+    df_result['macd'] = df_result['macd'].round(5)
+    return df_result
 
-        # 1. 计算EMA12（快速指数移动平均线）
-        # 初始值使用前fast_period天的简单平均值
-        group['macd_ema12'] = np.nan
-        if n >= fast_period:
-            # 初始EMA值
-            group.loc[fast_period - 1, 'macd_ema12'] = group['close'].iloc[:fast_period].mean()
-            # 后续EMA值：EMA = 当日收盘价×2/(N+1) + 前一日EMA×(N-1)/(N+1)
-            for i in range(fast_period, n):
-                group.loc[i, 'macd_ema12'] = (group.loc[i, 'close'] * 2 / (fast_period + 1) +
-                                              group.loc[i - 1, 'macd_ema12'] * (fast_period - 1) / (fast_period + 1))
+def macd2_formula(data: pd.DataFrame) -> pd.DataFrame:
+    fast_period = const.MACD2_PERIODS[0]
+    slow_period = const.MACD2_PERIODS[1]
+    signal_period = const.MACD2_PERIODS[2]
 
-        # 2. 计算EMA26（慢速指数移动平均线）
-        group['macd_ema26'] = np.nan
-        if n >= slow_period:
-            # 初始EMA值
-            group.loc[slow_period - 1, 'macd_ema26'] = group['close'].iloc[:slow_period].mean()
-            # 后续EMA值
-            for i in range(slow_period, n):
-                group.loc[i, 'macd_ema26'] = (group.loc[i, 'close'] * 2 / (slow_period + 1) +
-                                              group.loc[i - 1, 'macd_ema26'] * (slow_period - 1) / (slow_period + 1))
+    def calculate_macd_per_stock(group):
+        # 计算12日和26日指数移动平均线（EMA）
+        group['ema12'] = group['close'].ewm(span=fast_period, min_periods=fast_period).mean()
+        group['ema26'] = group['close'].ewm(span=slow_period, min_periods=slow_period).mean()
+        # 计算DIF（离差值）= EMA12 - EMA26
+        group['macd_dif'] = group['ema12'] - group['ema26']
+        # 计算DEA（信号线）= DIF的9日指数移动平均线
+        group['macd_dea'] = group['macd_dif'].ewm(span=signal_period, min_periods=signal_period).mean()
+        # 计算MACD柱状线 = (DIF - DEA) * 2
+        group['macd'] = (group['macd_dif'] - group['macd_dea']) * 2
+        # 初始化无效值为0（数据不足时）
+        valid_mask = group[['macd_dif', 'macd_dea', 'macd']].notna().all(axis=1)
+        group['macd_dif'] = group['macd_dif'].where(valid_mask, 0)
+        group['macd_dea'] = group['macd_dea'].where(valid_mask, 0)
+        group['macd'] = group['macd'].where(valid_mask, 0)
+        # 删除临时计算的EMA列
+        group = group.drop(columns=['ema12', 'ema26'])
+        return group
 
-        # 3. 计算MACD线（差离值 = EMA12 - EMA26）
-        group['macd_line'] = group['macd_ema12'] - group['macd_ema26']
+    # 按股票代码分组计算MACD，确保每只股票独立计算
+    df_result = data.groupby('ts_code', group_keys=False).apply(
+        calculate_macd_per_stock,
+        include_groups=False
+    )
+    # 保留小数位数，避免精度问题
+    df_result['macd_dif'] = df_result['macd_dif'].round(5)
+    df_result['macd_dea'] = df_result['macd_dea'].round(5)
+    df_result['macd'] = df_result['macd'].round(5)
+    return df_result
 
-        # 4. 计算信号线DEA（MACD线的signal_period日EMA）
-        group['macd_dea'] = np.nan
-        # 找到第一个有效的MACD值位置
-        first_valid_macd = group['macd_line'].first_valid_index()
-        if first_valid_macd is not None and (n - first_valid_macd) >= signal_period:
-            # 初始DEA值
-            start_idx = first_valid_macd + signal_period - 1
-            group.loc[start_idx, 'macd_dea'] = group['macd_line'].iloc[first_valid_macd:start_idx + 1].mean()
-            # 后续DEA值
-            for i in range(start_idx + 1, n):
-                group.loc[i, 'macd_dea'] = (group.loc[i, 'macd_line'] * 2 / (signal_period + 1) +
-                                            group.loc[i - 1, 'macd_dea'] * (signal_period - 1) / (signal_period + 1))
+def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
+    def calculate_kdj_per_stock(group):
+        # 计算9日最低价和最高价
+        group['low9'] = group['low'].rolling(window=9, min_periods=9).min()
+        group['high9'] = group['high'].rolling(window=9, min_periods=9).max()
 
-        # 5. 计算MACD柱状图（BAR = (MACD线 - DEA) × 2）
-        group['macd_bar'] = (group['macd_line'] - group['macd_dea']) * 2
+        # 计算RSV（未成熟随机值）
+        group['rsv'] = (group['close'] - group['low9']) / (group['high9'] - group['low9']) * 100
 
-        # 处理周期不足的情况（填充为0）
-        group[['macd_ema12', 'macd_ema26', 'macd_line', 'macd_dea', 'macd_bar']] = \
-            group[['macd_ema12', 'macd_ema26', 'macd_line', 'macd_dea', 'macd_bar']].fillna(0)
+        # 计算K值（初始K值设为50，后续为前一日K值*2/3 + 当日RSV*1/3）
+        group['kdj_k'] = 50.0  # 初始值
+        for i in range(1, len(group)):
+            if pd.notna(group.loc[group.index[i], 'rsv']) and pd.notna(group.loc[group.index[i - 1], 'kdj_k']):
+                group.loc[group.index[i], 'kdj_k'] = group.loc[group.index[i - 1], 'kdj_k'] * 2 / 3 + group.loc[
+                    group.index[i], 'rsv'] * 1 / 3
+
+        # 计算D值（初始D值设为50，后续为前一日D值*2/3 + 当日K值*1/3）
+        group['kdj_d'] = 50.0  # 初始值
+        for i in range(1, len(group)):
+            if pd.notna(group.loc[group.index[i], 'kdj_k']) and pd.notna(group.loc[group.index[i - 1], 'kdj_d']):
+                group.loc[group.index[i], 'kdj_d'] = group.loc[group.index[i - 1], 'kdj_d'] * 2 / 3 + group.loc[
+                    group.index[i], 'kdj_k'] * 1 / 3
+
+        # 计算J值 = 3*K - 2*D
+        group['kdj_j'] = 3 * group['kdj_k'] - 2 * group['kdj_d']
+
+        # 处理无效值（数据不足时设为0）
+        valid_mask = group[['kdj_k', 'kdj_d', 'kdj_j']].notna().all(axis=1)
+        group['kdj_k'] = group['kdj_k'].where(valid_mask, 0)
+        group['kdj_d'] = group['kdj_d'].where(valid_mask, 0)
+        group['kdj_j'] = group['kdj_j'].where(valid_mask, 0)
+
+        # 删除临时计算列
+        group = group.drop(columns=['low9', 'high9', 'rsv'])
 
         return group
 
-    # 分组计算并消除警告
-    result = data.groupby('ts_code', group_keys=False).apply(
-        calc_macd_per_stock,
+    # 按股票代码分组计算KDJ，确保每只股票独立计算
+    df_result = data.groupby('ts_code', group_keys=False).apply(
+        calculate_kdj_per_stock,
         include_groups=False
     )
 
-    result = result.drop(columns=["macd_ema12", "macd_ema26"])
-    return result
+    # 保留小数位数，避免精度问题
+    df_result['kdj_k'] = df_result['kdj_k'].round(5)
+    df_result['kdj_d'] = df_result['kdj_d'].round(5)
+    df_result['kdj_j'] = df_result['kdj_j'].round(5)
 
-def sar_formula(data: pd.DataFrame) -> pd.DataFrame:
-    return data
+    return df_result
 
-def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
-    return data
+def boll_formula(data: pd.DataFrame) -> pd.DataFrame:
+    def calculate_boll_per_stock(group):
+        # 计算中间轨（N日收盘价的简单移动平均线）
+        # 通常N取20，可通过const配置，这里默认使用20
+        n_period = getattr(const, 'BOLL_PERIOD', 20)
+        group['boll_mid'] = group['close'].rolling(window=n_period, min_periods=n_period).mean()
+        # 计算收盘价与中间轨的标准差（衡量波动幅度）
+        group['close_std'] = group['close'].rolling(window=n_period, min_periods=n_period).std()
+        # 计算上轨和下轨（中间轨 ± 2倍标准差，2是常见参数）
+        k = getattr(const, 'BOLL_K', 2)
+        group['boll_up'] = group['boll_mid'] + k * group['close_std']
+        group['boll_low'] = group['boll_mid'] - k * group['close_std']
+        # 处理无效值（数据不足时设为0）
+        valid_mask = group[['boll_mid', 'boll_up', 'boll_low']].notna().all(axis=1)
+        group['boll_mid'] = group['boll_mid'].where(valid_mask, 0)
+        group['boll_up'] = group['boll_up'].where(valid_mask, 0)
+        group['boll_low'] = group['boll_low'].where(valid_mask, 0)
+        # 删除临时计算列
+        group = group.drop(columns=['close_std'])
+        return group
+        # 按股票代码分组计算BOLL，确保每只股票独立计算
+    df_result = data.groupby('ts_code', group_keys=False).apply(
+        calculate_boll_per_stock,
+        include_groups=False
+    )
+    # 保留小数位数，避免精度问题
+    df_result['boll_mid'] = df_result['boll_mid'].round(5)
+    df_result['boll_up'] = df_result['boll_up'].round(5)
+    df_result['boll_low'] = df_result['boll_low'].round(5)
 
-def rsi_formula(data: pd.DataFrame) -> pd.DataFrame:
-    df = data.copy()
-    for i, period in enumerate(const.RSI_PERIODS):
-        price_col = 'close'
-        df[f"delta{period}"] = df[price_col].diff(1)  # 当日 - 前一日
-
-        # 2. 区分上涨和下跌幅度
-        df[f"gain{period}"] = np.where(df[f"delta{period}"] > 0, df[f"delta{period}"], 0)  # 上涨幅度
-        df[f"loss{period}"] = np.where(df[f"delta{period}"] < 0, -df[f"delta{period}"], 0)  # 下跌幅度（取绝对值）
-
-        # 3. 计算初始N天的平均增益和平均损失
-        # 前N天的简单平均值
-        initial_avg_gain = df[f"gain{period}"].iloc[1:period + 1].mean()  # 第1到第N天的gain平均
-        initial_avg_loss = df[f"loss{period}"].iloc[1:period + 1].mean()  # 第1到第N天的loss平均
-
-        # 初始化RSI列
-        df[f"rsi{period}"] = np.nan
-
-        # 计算第N天的RSI值（索引为period）
-        if initial_avg_loss == 0:
-            df.loc[period, f"rsi{period}"] = 100.0
-        else:
-            rs = initial_avg_gain / initial_avg_loss
-            df.loc[period, f"rsi{period}"] = 100 - (100 / (1 + rs))
-
-        # 4. 计算后续日期的RSI（从第N+1天开始）
-        for i in range(period + 1, len(df)):
-            # 平滑计算平均增益和损失
-            current_avg_gain = (initial_avg_gain * (period - 1) + df[f"gain{period}"].iloc[i]) / period
-            current_avg_loss = (initial_avg_loss * (period - 1) + df[f"loss{period}"].iloc[i]) / period
-
-            # 计算RSI
-            if current_avg_loss == 0:
-                df.loc[i, f"rsi{period}"] = 100.0
-            else:
-                rs = current_avg_gain / current_avg_loss
-                df.loc[i, f"rsi{period}"] = 100 - (100 / (1 + rs))
-
-            # 更新平均值用于下一次计算
-            initial_avg_gain = current_avg_gain
-            initial_avg_loss = current_avg_loss
-        df = df.drop(columns=[f"gain{period}", f"loss{period}", f"delta{period}"])
-
-    return df
-
-# def cci_formula(data: pd.DataFrame) -> pd.DataFrame:
-#     return data
-#
-#
-# def ma_formula(data: pd.DataFrame) -> pd.DataFrame:
-#     return data
-#
-#
-# def emv_formula(data: pd.DataFrame) -> pd.DataFrame:
-#     return data
-#
-#
-# def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
-#     return data
-#
-#
-# def macd_formula(data: pd.DataFrame) -> pd.DataFrame:
-#     return data
-
-#
-# if __name__ == "__main__":
-#     pro = ts.pro_api('j80872d274089319b71f9e5ca3966abf009')
-#
-#     daily_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_DAILY_COLL)
-#     cursor = daily_coll.find({},
-#                              {"_id": 0, "up_time": 0, "vol": 0, "amount": 0, "vol_ratio": 0, "turn_over": 0, "swing": 0,
-#                               "selling": 0, "buying": 0, "change": 0, "pct_change": 0})
-#     data = pd.DataFrame(list(cursor))
-#     # print(data.to_string())
-#     df = formula_main("rsi", data)
-#     print(df.to_string())
-
+    return df_result

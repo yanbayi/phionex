@@ -4,7 +4,6 @@ from typing import List, Dict, Optional
 from common import const
 import chinadata.ca_data as ts
 from db_ctl.util import mongoDb_ctl
-from data_ctl import tushare_ctl
 
 
 def get_tushare_trading_cal(
@@ -90,8 +89,7 @@ def get_start_date(pro: ts.pro_api, days: int, end_date_str: str) -> (str, str):
     return start_date_str, end_date_str
 
 
-def get_start_end_date(pro: ts.pro_api, days: int, update: bool, is_tdx: bool) -> (
-bool, datetime, datetime, bool):  # 是否要更新， 开始时间，结束时间， 是否是更新
+def get_start_end_date(pro: ts.pro_api, is_tdx: bool) -> (bool, datetime, datetime):
     conf_coll = mongoDb_ctl.init_mongo_collection(const.CONF_COLL)
     today = datetime.now()
     start_date = datetime.now()
@@ -103,29 +101,21 @@ bool, datetime, datetime, bool):  # 是否要更新， 开始时间，结束时�
     name = "daily_up_date"
     if is_tdx:
         name = "tdx_daily_up_date"
-    if update:  # 如果是更新则先算要拉多少天的数据
-        concept_info = conf_coll.find_one({"name": name})
-        up_date = concept_info.get("value", "")
-        print("当前交易日期：", up_date)
-        if up_date == "":  # 没有最新日期的当作全量更新
-            update = False
-            # if not is_tdx:
-            #     days += 50
-            start_date = today - timedelta(days=days)
-            end_date = today
-        else:
-            date1 = datetime.strptime(today.strftime(const.DATE_FORMAT), const.DATE_FORMAT)
-            date2 = datetime.strptime(up_date, const.DATE_FORMAT)
-            delta = date1 - date2
-            if delta.days <= 0:
-                print("当前最新日期：", date2, "不需要在更新数据, 当天股票信息19点后刷新")
-                return False, start_date, end_date, update
-            else:
-                start_date = date2 + timedelta(days=1)
-                end_date = date1
-    else:
-        # if not is_tdx:
-        #     days += 50
-        start_date = today - timedelta(days=days)
+    concept_info = conf_coll.find_one({"name": name})
+    up_date = concept_info.get("value", "")
+    print("数据库中最新交易日期：", up_date)
+    if up_date == "":  # 没有最新日期的当作全量更新
+        start_date = today - timedelta(days=360)
         end_date = today
-    return True, start_date, end_date, update
+    else:
+        date1 = datetime.strptime(today.strftime(const.DATE_FORMAT), const.DATE_FORMAT)
+        date2 = datetime.strptime(up_date, const.DATE_FORMAT)
+        delta = date1 - date2
+        if delta.days <= 0:
+            print("当前最新日期：", date2, "不需要在更新数据, 当天股票信息19点后刷新")
+            return False, start_date, end_date
+        else:
+            start_date = date2 + timedelta(days=1)
+            end_date = date1
+
+    return True, start_date, end_date

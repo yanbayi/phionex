@@ -61,14 +61,6 @@ db.createCollection("a_share_basic", {
           bsonType: "string",
           description: "交易所，必须为 [SH/SZ/BJ] 之一"
         },
-        "industry": {
-          bsonType: "string",
-          description: "所属行业"
-        },
-        "area": {
-          bsonType: "string",
-          description: "所属地域"
-        },
         "list_date": {
           bsonType: "string",
           description: "上市日期"
@@ -79,7 +71,7 @@ db.createCollection("a_share_basic", {
         },
          "is_st": {
           bsonType: "string",
-          description: "上市日期"
+          description: "是否st"
          },
          "up_time": {
           bsonType: "date",
@@ -92,7 +84,7 @@ db.createCollection("a_share_basic", {
   validationAction: "error"
 });
 
-db.a_share_basic.createIndex({ "ts_code": 1, "market":1, "is_st":1})
+db.a_share_basic.createIndex({ "ts_code": 1, "market":1, "list_status":1, "is_st":1})
 
 //===================================================2.日线==============================================================
 //use stock;
