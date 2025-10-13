@@ -26,7 +26,7 @@ class StockFormula:
             print(f"获取股票列表失败：{str(e)}")
             return
         # 循环股票
-        batch_size = 5
+        batch_size = 20
         stock_batches = [stock_list[i:i + batch_size] for i in range(0, len(stock_list), batch_size)]
         # 外层进度条：显示批次处理进度
         with tqdm(total=len(stock_batches), desc="拉取日线数据进度", unit="批") as batch_pbar:

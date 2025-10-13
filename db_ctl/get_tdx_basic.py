@@ -39,7 +39,7 @@ def main_get_tdx_basic():
 
         # 提取板块代码用于拉取成分股
         board_codes = result_df["ts_code"].unique().tolist()
-        print(f"共获取到{len(board_codes)}个概念板块，准备拉取成分股")
+        print(f"\n共获取到{len(board_codes)}个概念板块，准备拉取成分股")
         print("===== 处理成分股数据 =====")
         all_data_member = []
         for i in tqdm(range(0, len(board_codes)), desc="拉取成分股数据", total=len(board_codes), unit="批"):

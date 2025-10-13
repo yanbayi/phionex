@@ -12,7 +12,7 @@ if __name__ == "__main__":
     try:
         time1 = time.time()
         # 获取全部A股信息
-        get_all_stock_basic.main_get_all_stock_basic()
+        # get_all_stock_basic.main_get_all_stock_basic()
         time2 = time.time()
 
         # 获取日线

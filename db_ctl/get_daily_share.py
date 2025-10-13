@@ -80,7 +80,7 @@ def main_get_daily_share():
         print(f"获取股票列表失败：{str(e)}")
         return
 
-    batch_size = 2
+    batch_size = 100
     all_stock_data: List[pd.DataFrame] = []
     stock_batches = [stock_list[i:i + batch_size] for i in range(0, len(stock_list), batch_size)]
     # 外层进度条：显示批次处理进度
@@ -89,7 +89,7 @@ def main_get_daily_share():
             # 拉取数据
             try:
                 ts_codes_new = ",".join(batch)
-                df_stock = pro.stk_factor_pro(
+                df_stock = pro.daily(
                     ts_code=ts_codes_new,
                     start_date=start_date_str,
                     end_date=end_date_str,
@@ -102,18 +102,17 @@ def main_get_daily_share():
             except Exception as e:
                 print(f" 批量拉取失败（{len(batch)}只股票）：{str(e)}")
             batch_pbar.update(1)
-            time.sleep(0.5)
+            time.sleep(0.2)
     full_df = pd.concat(all_stock_data, ignore_index=True)
+    # print(full_df.to_string())
     print(f"A股数据拉取完成，实际获取条数：{full_df.shape[0]} 条")
     count = 0
     all_adj_data: List[pd.DataFrame] = []
     while True:
-
         start_date_str_new = start_date.strftime(const.DATE_FORMAT)
         if start_date > end_date or count > 100:
             break
-        # print(start_date_str_new, count)
-        df_adj = pro.adj_factor(ts_code=batch[0], start_date=start_date_str_new, end_date=start_date_str_new)
+        df_adj = pro.adj_factor(start_date=start_date_str_new, end_date=start_date_str_new)
         all_adj_data.append(df_adj)
         start_date += timedelta(days=1)
         count += 1

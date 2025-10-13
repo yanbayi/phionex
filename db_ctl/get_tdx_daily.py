@@ -111,4 +111,4 @@ def main_get_tdx_daily():
 
 
 if __name__ == "__main__":
-    main_get_tdx_daily(days=60, update=True)
+    main_get_tdx_daily()
