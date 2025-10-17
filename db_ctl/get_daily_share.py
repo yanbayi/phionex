@@ -6,7 +6,7 @@ from tqdm import tqdm
 from typing import List, Dict
 from common import utils, const
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 
 err_tscode_list = {}
 def insert_batch_data(daily_coll, df: pd.DataFrame) -> int:
@@ -50,7 +50,7 @@ def insert_batch_data(daily_coll, df: pd.DataFrame) -> int:
         return 0
 
 
-def main_get_daily_share():
+def main_get_daily_share() -> str | None:
     print("=" * 60)
     print(f"启动A股日线数据更新")
     print("=" * 60)
@@ -60,8 +60,12 @@ def main_get_daily_share():
     daily_coll = mongoDb_ctl.init_mongo_collection(const.MONGO_DAILY_COLL)
     conf_coll = mongoDb_ctl.init_mongo_collection(const.CONF_COLL)
     run, start_date, end_date = utils.get_start_end_date(pro, False)
+    if end_date - start_date > timedelta(days=60):
+        err = "数据更新超过100天，请运行全量更新"
+        print(err)
+        return err
     if not run:
-        return
+        return None
     start_date_str = start_date.strftime(const.DATE_FORMAT)
     end_date_str = end_date.strftime(const.DATE_FORMAT)
     print(f"是否需要更新数据：{run}， 获取日线开始日期：{start_date_str}, 获取日线结束日期: {end_date_str}")
@@ -77,9 +81,9 @@ def main_get_daily_share():
             raise ValueError("未获取到上市股票列表（基础信息集合可能为空）")
         print(f"获取上市股票【主板、创业】排除st\科创的：{len(stock_list)}只")
     except Exception as e:
-        print(f"获取股票列表失败：{str(e)}")
-        return
-
+        err = "获取股票列表失败"+str(e)
+        print(err)
+        return err
     batch_size = 100
     all_stock_data: List[pd.DataFrame] = []
     stock_batches = [stock_list[i:i + batch_size] for i in range(0, len(stock_list), batch_size)]
@@ -98,9 +102,26 @@ def main_get_daily_share():
                 if df_stock.empty:
                     print(f"股票无新数据:（{batch}）")
                     continue
-                all_stock_data.append(df_stock)
+                df_basic = pro.daily_basic(
+                    ts_code=ts_codes_new,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    fields="""ts_code,turnover_rate,turnover_rate_f,trade_date,total_share,float_share,free_share,total_mv,circ_mv"""
+                )
+                if df_basic.empty:
+                    print(f"股票换手无新数据:（{batch}）")
+                    continue
+                merged_df1 = pd.merge(
+                    df_stock,
+                    df_basic,
+                    on=['ts_code', 'trade_date'],  # 指定两个连接键
+                    how='left'  # 内连接，只保留两个df中都存在的记录
+                )
+                all_stock_data.append(merged_df1)
             except Exception as e:
-                print(f" 批量拉取失败（{len(batch)}只股票）：{str(e)}")
+                err = "批量拉取失败" + str(e)
+                print(err)
+                return err
             batch_pbar.update(1)
             time.sleep(0.2)
     full_df = pd.concat(all_stock_data, ignore_index=True)
@@ -133,6 +154,7 @@ def main_get_daily_share():
     print(f"更新完成！总处理股票：{len(stock_list)}只，总插入数据：{inserted}条, 出问题数据：{len(err_tscode_list)}条")
     print("出问题数据：", err_tscode_list)
     print("=" * 60)
+    return None
 
 
 if __name__ == "__main__":

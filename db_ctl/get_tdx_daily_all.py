@@ -7,7 +7,7 @@ from pymongo import errors
 from tqdm import tqdm  # 进度条库（核心新增）
 from common import const, utils
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 
 
 def main_get_tdx_daily_all():
@@ -87,6 +87,7 @@ def main_get_tdx_daily_all():
 
     # 输出最终结果
     conf_coll.update_one({"name": "tdx_daily_up_date"}, {"$set": {"value": end_date_str}})
+    conf_coll.update_one({"name": "tdx_daily_start_date"}, {"$set": {"value": start_date_str}})
     print("=" * 60)
     print(f"通达信板块{day}日日线数据拉取流程完成")
     print(f"覆盖交易日：{start_date_str} ~ {end_date_str}")

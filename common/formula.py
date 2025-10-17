@@ -1,213 +1,148 @@
+import time
 import pandas as pd
 from common import const
 
-def formula_main(indicators: str, data: pd.DataFrame) -> pd.DataFrame:
+def formula_main(data: pd.DataFrame) -> pd.DataFrame:
     required_columns = ['ts_code', 'trade_date', 'date', 'open_q', 'high_q', 'low_q', 'close_q']
     if not set(required_columns).issubset(data.columns):
         missing = [col for col in required_columns if col not in data.columns]
         raise ValueError(f"数据缺少必要的列: {missing}")
-    match indicators:
-        case "ma":  # 计算多日均线
-            return ma_formula(data)
-        case "bbi":  # 多空指数 3 6 12 20/3 6 12 24
-            return bbi_formula(data)
-        case "macd1":  # 指数平滑异同移动平均线12 26 9
-            return macd1_formula(data)
-        case "macd2":  # 指数平滑异同移动平均线60 130 45
-            return macd2_formula(data)
-        case "kdj": # 9 3 3
-            return kdj_formula(data)
-        case "boll":
-            return kdj_formula(data)
-        case _:
-            return data
 
-def ma_formula(data: pd.DataFrame) -> pd.DataFrame:
-    def calc_ma_per_stock(group):
-        # 计算各周期均线，日期不足时结果为0
+    def formula_all(group):
+
+        ########################## 计算各周期均线，日期不足时结果为0 #########################
+        # time_ma = time.time()
+
         for i, period in enumerate(const.MA_PERIODS):
-            group[f"ma{period}"] = group["close"].rolling(
+            group[f"ma{period}"] = group["close_q"].rolling(
                 window=period,
                 min_periods=period
             ).mean()
-            group[f"ma{period}"] = group[f"ma{period}"].fillna(0)
-        return group
-    result = data.groupby('ts_code', group_keys=False).apply(
-        calc_ma_per_stock,
-        include_groups=False
-    )
-    for i, period in enumerate(const.MA_PERIODS):
-        result[f"ma{period}"] = result[f"ma{period}"].round(5)
-    return result
+            group[f"ma{period}"] = group[f"ma{period}"].fillna(0).round(5)
 
-def bbi_formula(data: pd.DataFrame) -> pd.DataFrame:
-    def calculate_bbi_per_stock(group):
+
+        # time_ma_end = time.time()
+        # print(f"ma耗时: {time_ma_end - time_ma:.6f} 秒")
+        ########################## 计算bbi                     #########################
+        # time_bbi = time.time()
+
         for i, period in enumerate(const.BBI_PERIODS):
-            group[f"MA{i}"] = group["close"].rolling(
+            group[f"MA{i}"] = group["close_q"].rolling(
                 window=period,
                 min_periods=period
             ).mean()
         valid_mask20 = group[["MA0", "MA1", "MA2", "MA3"]].notna().all(axis=1)
-        # valid_mask24 = group[["MA0", "MA1", "MA2", "MA4"]].notna().all(axis=1)
         group["bbi20"] = 0.0
-        # group["bbi24"] = 0.0
         group.loc[valid_mask20, "bbi20"] = group.loc[valid_mask20, ["MA0", "MA1", "MA2", "MA3"]].sum(axis=1) / 4.0
-        # group.loc[valid_mask24, "bbi24"] = group.loc[valid_mask24, ["MA0", "MA1", "MA2", "MA4"]].sum(axis=1) / 4.0
+        for col in ['bbi20']:
+            group[col] = group[col].round(5)
+            group[col] = group[col].where(group[col] != -0.0, 0.0)
         group = group.drop(columns=["MA0", "MA1", "MA2", "MA3"])
-        return group
 
-    df_result = data.groupby("ts_code", group_keys=False).apply(calculate_bbi_per_stock, include_groups=False)
-    df_result["bbi20"] = df_result["bbi20"].round(5)  # 可选：保留2位小数，便于阅读
-    # df_result["bbi24"] = df_result["bbi24"].round(5)  # 可选：保留2位小数，便于阅读
 
-    return df_result
+        # time_bbi_end = time.time()
+        # print(f"bbi耗时: {time_bbi_end - time_bbi:.6f} 秒")
+        # ########################## 计算macd1                   #########################
+        # time_macd1 = time.time()
 
-def macd1_formula(data: pd.DataFrame) -> pd.DataFrame:
-    fast_period = const.MACD1_PERIODS[0]
-    slow_period = const.MACD1_PERIODS[1]
-    signal_period = const.MACD1_PERIODS[2]
-    def calculate_macd_per_stock(group):
-        # 计算12日和26日指数移动平均线（EMA）
-        group['ema12'] = group['close'].ewm(span=fast_period, min_periods=fast_period).mean()
-        group['ema26'] = group['close'].ewm(span=slow_period, min_periods=slow_period).mean()
-        # 计算DIF（离差值）= EMA12 - EMA26
-        group['macd_dif'] = group['ema12'] - group['ema26']
-        # 计算DEA（信号线）= DIF的9日指数移动平均线
-        group['macd_dea'] = group['macd_dif'].ewm(span=signal_period, min_periods=signal_period).mean()
-        # 计算MACD柱状线 = (DIF - DEA) * 2
-        group['macd'] = (group['macd_dif'] - group['macd_dea']) * 2
-        # 初始化无效值为0（数据不足时）
-        valid_mask = group[['macd_dif', 'macd_dea', 'macd']].notna().all(axis=1)
-        group['macd_dif'] = group['macd_dif'].where(valid_mask, 0)
-        group['macd_dea'] = group['macd_dea'].where(valid_mask, 0)
-        group['macd'] = group['macd'].where(valid_mask, 0)
-        # 删除临时计算的EMA列
-        group = group.drop(columns=['ema12', 'ema26'])
-        return group
-    # 按股票代码分组计算MACD，确保每只股票独立计算
-    df_result = data.groupby('ts_code', group_keys=False).apply(
-        calculate_macd_per_stock,
-        include_groups=False
-    )
-    # 保留小数位数，避免精度问题
-    df_result['macd_dif'] = df_result['macd_dif'].round(5)
-    df_result['macd_dea'] = df_result['macd_dea'].round(5)
-    df_result['macd'] = df_result['macd'].round(5)
-    return df_result
+        fast_period1 = const.MACD1_PERIODS[0]
+        slow_period1 = const.MACD1_PERIODS[1]
+        signal_period1 = const.MACD1_PERIODS[2]
+        group['ema121'] = group['close_q'].ewm(span=fast_period1,min_periods=1,adjust=False).mean()
+        group['ema261'] = group['close_q'].ewm(span=slow_period1,min_periods=1,adjust=False).mean()
+        group['macd_dif1'] = group['ema121'] - group['ema261']
+        group['macd_dea1'] = group['macd_dif1'].ewm(span=signal_period1,min_periods=1,adjust=False).mean()
+        group['macd1'] = (group['macd_dif1'] - group['macd_dea1']) * 2
+        valid_mask = group[['macd_dif1', 'macd_dea1', 'macd1']].notna().all(axis=1)
+        group['macd_dif1'] = group['macd_dif1'].where(valid_mask, 0)
+        group['macd_dea1'] = group['macd_dea1'].where(valid_mask, 0)
+        group['macd1'] = group['macd1'].where(valid_mask, 0)
+        for col in ['macd_dif1', 'macd_dea1', 'macd1']:
+            group[col] = group[col].round(5)
+            group[col] = group[col].where(group[col] != -0.0, 0.0)
+        group = group.drop(columns=['ema121', 'ema261'])
 
-def macd2_formula(data: pd.DataFrame) -> pd.DataFrame:
-    fast_period = const.MACD2_PERIODS[0]
-    slow_period = const.MACD2_PERIODS[1]
-    signal_period = const.MACD2_PERIODS[2]
 
-    def calculate_macd_per_stock(group):
-        # 计算12日和26日指数移动平均线（EMA）
-        group['ema12'] = group['close'].ewm(span=fast_period, min_periods=fast_period).mean()
-        group['ema26'] = group['close'].ewm(span=slow_period, min_periods=slow_period).mean()
-        # 计算DIF（离差值）= EMA12 - EMA26
-        group['macd_dif'] = group['ema12'] - group['ema26']
-        # 计算DEA（信号线）= DIF的9日指数移动平均线
-        group['macd_dea'] = group['macd_dif'].ewm(span=signal_period, min_periods=signal_period).mean()
-        # 计算MACD柱状线 = (DIF - DEA) * 2
-        group['macd'] = (group['macd_dif'] - group['macd_dea']) * 2
-        # 初始化无效值为0（数据不足时）
-        valid_mask = group[['macd_dif', 'macd_dea', 'macd']].notna().all(axis=1)
-        group['macd_dif'] = group['macd_dif'].where(valid_mask, 0)
-        group['macd_dea'] = group['macd_dea'].where(valid_mask, 0)
-        group['macd'] = group['macd'].where(valid_mask, 0)
-        # 删除临时计算的EMA列
-        group = group.drop(columns=['ema12', 'ema26'])
-        return group
+        # time_macd1_end = time.time()
+        # print(f"macd1耗时: {time_macd1_end - time_macd1:.6f} 秒")
+        ########################## 计算macd2                   #########################
+        # time_macd2 = time.time()
 
-    # 按股票代码分组计算MACD，确保每只股票独立计算
-    df_result = data.groupby('ts_code', group_keys=False).apply(
-        calculate_macd_per_stock,
-        include_groups=False
-    )
-    # 保留小数位数，避免精度问题
-    df_result['macd_dif'] = df_result['macd_dif'].round(5)
-    df_result['macd_dea'] = df_result['macd_dea'].round(5)
-    df_result['macd'] = df_result['macd'].round(5)
-    return df_result
+        fast_period2 = const.MACD2_PERIODS[0]
+        slow_period2 = const.MACD2_PERIODS[1]
+        signal_period2 = const.MACD2_PERIODS[2]
+        group['ema122'] = group['close_q'].ewm(span=fast_period2,min_periods=1,adjust=False).mean()
+        group['ema262'] = group['close_q'].ewm(span=slow_period2,min_periods=1,adjust=False).mean()
+        group['macd_dif2'] = group['ema122'] - group['ema262']
+        group['macd_dea2'] = group['macd_dif2'].ewm(span=signal_period2,min_periods=1,adjust=False).mean()
+        group['macd2'] = (group['macd_dif2'] - group['macd_dea2']) * 2
+        valid_mask = group[['macd_dif2', 'macd_dea2', 'macd2']].notna().all(axis=1)
+        group['macd_dif2'] = group['macd_dif2'].where(valid_mask, 0)
+        group['macd_dea2'] = group['macd_dea2'].where(valid_mask, 0)
+        group['macd2'] = group['macd2'].where(valid_mask, 0)
+        for col in ['macd_dif2', 'macd_dea2', 'macd2']:
+            group[col] = group[col].round(5)
+            group[col] = group[col].where(group[col] != -0.0, 0.0)
+        group = group.drop(columns=['ema122', 'ema262'])
 
-def kdj_formula(data: pd.DataFrame) -> pd.DataFrame:
-    def calculate_kdj_per_stock(group):
-        # 计算9日最低价和最高价
-        group['low9'] = group['low'].rolling(window=9, min_periods=9).min()
-        group['high9'] = group['high'].rolling(window=9, min_periods=9).max()
 
-        # 计算RSV（未成熟随机值）
-        group['rsv'] = (group['close'] - group['low9']) / (group['high9'] - group['low9']) * 100
+        # time_macd2_end = time.time()
+        # print(f"macd2耗时: {time_macd2_end - time_macd2:.6f} 秒")
+        ########################## 计算kdj                    #########################
+        # time_kdj = time.time()
 
-        # 计算K值（初始K值设为50，后续为前一日K值*2/3 + 当日RSV*1/3）
-        group['kdj_k'] = 50.0  # 初始值
-        for i in range(1, len(group)):
-            if pd.notna(group.loc[group.index[i], 'rsv']) and pd.notna(group.loc[group.index[i - 1], 'kdj_k']):
-                group.loc[group.index[i], 'kdj_k'] = group.loc[group.index[i - 1], 'kdj_k'] * 2 / 3 + group.loc[
-                    group.index[i], 'rsv'] * 1 / 3
+        n, m1, m2 = const.KDJ_PERIODS
+        group['llv_low'] = group['low_q'].rolling(window=n, min_periods=n).min()
+        group['hhv_high'] = group['high_q'].rolling(window=n, min_periods=n).max()
+        valid_mask = (group['hhv_high'] - group['llv_low']) != 0
+        group['rsv'] = 0.0
+        group.loc[valid_mask, 'rsv'] = (
+                (group.loc[valid_mask, 'close_q'] - group.loc[valid_mask, 'llv_low']) /
+                (group.loc[valid_mask, 'hhv_high'] - group.loc[valid_mask, 'llv_low']) * 100
+        )
+        group['kdj_k_qfq'] = 0.0
+        group['kdj_d_qfq'] = 0.0
+        k_vals = group['kdj_k_qfq'].values
+        d_vals = group['kdj_d_qfq'].values
+        rsv_vals = group['rsv'].values
+        group_len = len(group)
+        if group_len >= n:
+            k_vals[n - 1] = rsv_vals[n - 1]
+            d_vals[n - 1] = k_vals[n - 1]
+            for i in range(n, group_len):
+                k_vals[i] = (k_vals[i - 1] * (m1 - 1) + rsv_vals[i]) / m1
+                d_vals[i] = (d_vals[i - 1] * (m2 - 1) + k_vals[i]) / m2
+        group['kdj_k_qfq'] = k_vals
+        group['kdj_d_qfq'] = d_vals
+        group['kdj_j_qfq'] = 3 * group['kdj_k_qfq'] - 2 * group['kdj_d_qfq']
+        for col in ['kdj_k_qfq', 'kdj_d_qfq', 'kdj_j_qfq']:
+            group[col] = group[col].round(5)
+            group[col] = group[col].where(group[col] != -0.0, 0.0)
+        group = group.drop(columns=['llv_low', 'hhv_high', 'rsv'])
 
-        # 计算D值（初始D值设为50，后续为前一日D值*2/3 + 当日K值*1/3）
-        group['kdj_d'] = 50.0  # 初始值
-        for i in range(1, len(group)):
-            if pd.notna(group.loc[group.index[i], 'kdj_k']) and pd.notna(group.loc[group.index[i - 1], 'kdj_d']):
-                group.loc[group.index[i], 'kdj_d'] = group.loc[group.index[i - 1], 'kdj_d'] * 2 / 3 + group.loc[
-                    group.index[i], 'kdj_k'] * 1 / 3
 
-        # 计算J值 = 3*K - 2*D
-        group['kdj_j'] = 3 * group['kdj_k'] - 2 * group['kdj_d']
+        # time_kdj_end = time.time()
+        # print(f"kdj耗时: {time_kdj_end - time_kdj:.6f} 秒")
+        ########################## 计算boll                   #########################
+        # time_boll = time.time()
 
-        # 处理无效值（数据不足时设为0）
-        valid_mask = group[['kdj_k', 'kdj_d', 'kdj_j']].notna().all(axis=1)
-        group['kdj_k'] = group['kdj_k'].where(valid_mask, 0)
-        group['kdj_d'] = group['kdj_d'].where(valid_mask, 0)
-        group['kdj_j'] = group['kdj_j'].where(valid_mask, 0)
-
-        # 删除临时计算列
-        group = group.drop(columns=['low9', 'high9', 'rsv'])
-
-        return group
-
-    # 按股票代码分组计算KDJ，确保每只股票独立计算
-    df_result = data.groupby('ts_code', group_keys=False).apply(
-        calculate_kdj_per_stock,
-        include_groups=False
-    )
-
-    # 保留小数位数，避免精度问题
-    df_result['kdj_k'] = df_result['kdj_k'].round(5)
-    df_result['kdj_d'] = df_result['kdj_d'].round(5)
-    df_result['kdj_j'] = df_result['kdj_j'].round(5)
-
-    return df_result
-
-def boll_formula(data: pd.DataFrame) -> pd.DataFrame:
-    def calculate_boll_per_stock(group):
-        # 计算中间轨（N日收盘价的简单移动平均线）
-        # 通常N取20，可通过const配置，这里默认使用20
-        n_period = getattr(const, 'BOLL_PERIOD', 20)
-        group['boll_mid'] = group['close'].rolling(window=n_period, min_periods=n_period).mean()
-        # 计算收盘价与中间轨的标准差（衡量波动幅度）
-        group['close_std'] = group['close'].rolling(window=n_period, min_periods=n_period).std()
-        # 计算上轨和下轨（中间轨 ± 2倍标准差，2是常见参数）
-        k = getattr(const, 'BOLL_K', 2)
-        group['boll_up'] = group['boll_mid'] + k * group['close_std']
-        group['boll_low'] = group['boll_mid'] - k * group['close_std']
-        # 处理无效值（数据不足时设为0）
-        valid_mask = group[['boll_mid', 'boll_up', 'boll_low']].notna().all(axis=1)
-        group['boll_mid'] = group['boll_mid'].where(valid_mask, 0)
-        group['boll_up'] = group['boll_up'].where(valid_mask, 0)
-        group['boll_low'] = group['boll_low'].where(valid_mask, 0)
-        # 删除临时计算列
+        n_period = const.BOLL_PERIODS[0]  # BOLL周期
+        m_factor = const.BOLL_PERIODS[1]  # 标准差倍数
+        group['boll_mid'] = group['close_q'].rolling(window=n_period, min_periods=n_period).mean()
+        group['close_std'] = group['close_q'].rolling(window=n_period, min_periods=n_period).std(ddof=0)
+        group['boll_upper'] = group['boll_mid'] + m_factor * group['close_std']
+        group['boll_lower'] = group['boll_mid'] - m_factor * group['close_std']
+        for col in ['boll_mid', 'boll_upper', 'boll_lower']:
+            group[col] = group[col].round(5)
+            group[col] = group[col].where(group[col] != -0.0, 0.0)
+        group[['boll_mid', 'boll_upper', 'boll_lower']] = group[['boll_mid', 'boll_upper', 'boll_lower']].fillna(0)
         group = group.drop(columns=['close_std'])
-        return group
-        # 按股票代码分组计算BOLL，确保每只股票独立计算
-    df_result = data.groupby('ts_code', group_keys=False).apply(
-        calculate_boll_per_stock,
-        include_groups=False
-    )
-    # 保留小数位数，避免精度问题
-    df_result['boll_mid'] = df_result['boll_mid'].round(5)
-    df_result['boll_up'] = df_result['boll_up'].round(5)
-    df_result['boll_low'] = df_result['boll_low'].round(5)
 
-    return df_result
+
+        # time_boll_end = time.time()
+        # print(f"boll耗时: {time_boll_end - time_boll:.6f} 秒")
+        return group
+
+    result = data.groupby("ts_code").apply(formula_all,include_groups=False)
+    result = result.reset_index(level='ts_code')
+    return result

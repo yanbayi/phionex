@@ -2,12 +2,12 @@
 import pandas as pd
 from datetime import datetime, timedelta
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 from tqdm import tqdm
 from common import const, utils
 
 
-def main_get_tdx_basic():
+def main_get_tdx_basic() -> str | None:
     print("=" * 60)
     print("启动tdx模块信息、成分每日全量更新脚本")
     print("=" * 60)
@@ -63,11 +63,13 @@ def main_get_tdx_basic():
         print("=" * 60)
         print("通达信板块数据处理完成 ！")
         print("=" * 60)
+        return None
     except Exception as e:
+        err = "脚本执行失败：" + str(e)
         print("=" * 60)
-        print(f"脚本执行失败：{str(e)}")
+        print(err)
         print("=" * 60)
-        raise
+        return err
 
 
 if __name__ == "__main__":

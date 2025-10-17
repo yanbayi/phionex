@@ -28,7 +28,8 @@ db.a_share_basic.createIndex({ "name": 1},{unique: true})
 
 db.conf_daily.insertOne({"name":"daily_up_date", "value":""})
 db.conf_daily.insertOne({"name":"tdx_daily_up_date", "value":""})
-
+db.conf_daily.insertOne({"name":"daily_start_date", "value":""})
+db.conf_daily.insertOne({"name":"tdx_daily_start_date", "value":""})
 
 //==========================================1. 股票基础信息表 - 存储股票基本资料==============================================
 //use stock;

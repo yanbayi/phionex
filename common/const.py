@@ -21,5 +21,7 @@ BBI_PERIODS = [3, 6, 12, 20]
 MA_PERIODS = [5, 10, 20, 60]
 MACD1_PERIODS = [12, 26, 9]
 MACD2_PERIODS = [60, 130, 45]
+KDJ_PERIODS = [9, 3, 3]
+BOLL_PERIODS = [20, 2]
 # 指标获取
 VALID_IDX_TYPES = ["概念板块", "行业板块", "风格板块", "地区板块"]

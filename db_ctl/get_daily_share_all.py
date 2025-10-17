@@ -6,7 +6,7 @@ from tqdm import tqdm
 from typing import List, Dict, Optional
 from common import utils, const, formula
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 from dateutil.relativedelta import relativedelta
 
 err_tscode_list = {}
@@ -62,7 +62,7 @@ def main_get_daily_share_all():
     try:
         stock_cursor = basic_coll.find(
             {"$and": [{"$or": [{"market": "主板"}, {"market": "创业板"}]}],"list_status":"L"},projection={"ts_code": 1, "_id": 0})
-        # stock_cursor = basic_coll.find({"ts_code": "000001.SZ"},projection={"ts_code": 1, "_id": 0})
+        # stock_cursor = basic_coll.find({"ts_code": "301589.SZ"},projection={"ts_code": 1, "_id": 0})
         stock_list = [doc["ts_code"] for doc in stock_cursor]
         if not stock_list:
             raise ValueError("未获取到上市股票列表（基础信息集合可能为空）")
@@ -99,13 +99,28 @@ def main_get_daily_share_all():
                     if df_adj.empty:
                         print(f"股票复权因子无新数据:（{batch}）")
                         continue
-                    merged_df = pd.merge(
+                    df_basic = pro.daily_basic(
+                        ts_code=batch[0],
+                        start_date=start_date_str,
+                        end_date=end_date_str,
+                        fields="""ts_code,turnover_rate,turnover_rate_f,trade_date,total_share,float_share,free_share,total_mv,circ_mv"""
+                    )
+                    if df_basic.empty:
+                        print(f"股票换手无新数据:（{batch}）")
+                        continue
+                    merged_df1 = pd.merge(
                         df_stock,
                         df_adj,
                         on=['ts_code', 'trade_date'],  # 指定两个连接键
                         how='left'  # 内连接，只保留两个df中都存在的记录
                     )
-                    all_merged_df.append(merged_df)
+                    merged_df2 = pd.merge(
+                        merged_df1,
+                        df_basic,
+                        on=['ts_code', 'trade_date'],  # 指定两个连接键
+                        how='left'  # 内连接，只保留两个df中都存在的记录
+                    )
+                    all_merged_df.append(merged_df2)
                 except Exception as e:
                     print(f" 批量拉取失败（{len(batch)}只股票）：{str(e)}")
             all_df = pd.concat(all_merged_df, ignore_index=True)
@@ -116,8 +131,8 @@ def main_get_daily_share_all():
             batch_pbar.update(1)
             time.sleep(0.2)
 
-
     conf_coll.update_one({"name": "daily_up_date"}, {"$set":{"value":end_date.strftime(const.DATE_FORMAT)}})
+    conf_coll.update_one({"name": "daily_start_date"}, {"$set": {"value": "19900101"}})
     print("=" * 60)
     print(f"更新完成！总处理股票：{len(stock_list)}只，总插入数据：{total_inserted}条, 出问题数据：{len(err_tscode_list)}条")
     print("出问题数据：", err_tscode_list)

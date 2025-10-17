@@ -5,7 +5,7 @@ import time
 import chinadata.ca_data as ts
 from pymongo import MongoClient
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 from tqdm import tqdm  # 进度条库（核心新增）
 from typing import List, Dict  # 类型提示（提升代码可读性）
 from common import const
@@ -103,7 +103,7 @@ def full_update_mongo(full_df: pd.DataFrame):
         raise
 
 
-def main_get_all_stock_basic():
+def main_get_all_stock_basic() -> str | None:
     print("=" * 60)
     print("启动A股基础信息每日全量更新脚本")
     print("=" * 60)
@@ -116,11 +116,13 @@ def main_get_all_stock_basic():
         print("=" * 60)
         print("A股基础信息每日全量更新脚本执行完成！")
         print("=" * 60)
+        return None
     except Exception as e:
+        err = "A股基础信息脚本执行失败"+str(e)
         print("=" * 60)
-        print(f"A股基础信息脚本执行失败：{str(e)}")
+        print(err)
         print("=" * 60)
-        raise
+        return err
 
 
 if __name__ == "__main__":

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票量化平台</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-50 min-h-screen p-4 md:p-8">
+    <div class="max-w-4xl mx-auto bg-white rounded-lg shadow-md p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6 flex items-center">
+            <i class="fa fa-line-chart text-blue-600 mr-2"></i>
+            股票量化平台
+        </h1>
+
+        <!-- 第一部分：数据准备 -->
+        <div class="mb-8 border-b pb-6">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">数据准备</h2>
+
+            <!-- 状态信息展示 -->
+            <div class="grid md:grid-cols-2 gap-4 mb-6">
+                <!-- 当前数据周期 -->
+                <div class="p-3 bg-gray-50 rounded border border-gray-200">
+                    <div class="font-medium text-gray-800 mb-1">当前数据周期：</div>
+                    <div class="text-gray-600">
+                        股票日线数据时间: {{ stock_date_start }} ~ {{ stock_date_end }}
+                    </div>
+                    <div class="text-gray-600">
+                        板块、概念日线数据时间: {{ tdx_date_start }} ~ {{ tdx_date_end }}
+                    </div>
+                </div>
+
+                <!-- 测试准备状态 -->
+                <div class="p-3 bg-gray-50 rounded border border-gray-200">
+                    <div class="font-medium text-gray-800 mb-1">测试准备状态：</div>
+                    <div class="text-gray-600 flex items-center">
+                        {% if test_prepare_status == "ok" %}
+                            <span class="text-green-600"><i class="fa fa-check-circle mr-1"></i>OK</span>
+                        {% else %}
+                            <span class="text-red-600"><i class="fa fa-times-circle mr-1"></i>FAIL</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div class="flex flex-wrap gap-4">
+                <button id="pull-data-btn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition-colors flex items-center">
+                    <i class="fa fa-download mr-2"></i>拉取数据
+                </button>
+
+                <button id="prepare-test-btn" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition-colors flex items-center">
+                    <i class="fa fa-database mr-2"></i>测试准备
+                </button>
+            </div>
+        </div>
+
+        <!-- 第二部分：策略编写与回测（预留） -->
+        <div>
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">策略编写与回测</h2>
+            <div class="p-6 bg-gray-50 rounded border border-gray-200 text-center text-gray-500">
+                <i class="fa fa-code-fork text-3xl mb-2 opacity-30"></i>
+                <p>功能开发中，敬请期待...</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            // 拉取数据按钮逻辑
+            const pullDataBtn = document.getElementById('pull-data-btn');
+            pullDataBtn.addEventListener('click', function() {
+                // 禁用按钮，显示加载状态
+                pullDataBtn.disabled = true;
+                pullDataBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
+                pullDataBtn.classList.add('opacity-70', 'cursor-not-allowed');
+
+                // 调用后端拉取数据接口（同步操作，等待返回）
+                fetch('/pull_data', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 成功后刷新页面，展示最新数据周期
+                            window.location.reload();
+                        } else {
+                            // 失败时恢复按钮状态并显示错误
+                            alert(data.message || '数据拉取失败');
+                            resetPullDataButton();
+                        }
+                    })
+                    .catch(error => {
+                        alert('数据拉取过程中发生错误');
+                        console.error('拉取数据错误:', error);
+                        resetPullDataButton();
+                    });
+            });
+
+            // 测试准备按钮逻辑
+            const prepareTestBtn = document.getElementById('prepare-test-btn');
+            prepareTestBtn.addEventListener('click', function() {
+                // 禁用按钮，显示加载状态
+                prepareTestBtn.disabled = true;
+                prepareTestBtn.innerHTML = '<i class="fa fa-spinner fa-spin mr-2"></i>处理中...';
+                prepareTestBtn.classList.add('opacity-70', 'cursor-not-allowed');
+
+                // 调用后端测试准备接口（同步操作，等待返回）
+                fetch('/prepare_data', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // 成功后刷新页面，展示最新状态
+                            window.location.reload();
+                        } else {
+                            // 失败时恢复按钮状态并显示错误
+                            alert(data.message || '测试准备失败');
+                            resetPrepareTestButton();
+                        }
+                    })
+                    .catch(error => {
+                        alert('测试准备过程中发生错误');
+                        console.error('测试准备错误:', error);
+                        resetPrepareTestButton();
+                    });
+            });
+
+            // 重置拉取数据按钮状态
+            function resetPullDataButton() {
+                const btn = document.getElementById('pull-data-btn');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-download mr-2"></i>拉取数据';
+                btn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
+
+            // 重置测试准备按钮状态
+            function resetPrepareTestButton() {
+                const btn = document.getElementById('prepare-test-btn');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa fa-database mr-2"></i>测试准备';
+                btn.classList.remove('opacity-70', 'cursor-not-allowed');
+            }
+        });
+    </script>
+</body>
+</html>

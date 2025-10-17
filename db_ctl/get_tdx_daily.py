@@ -6,7 +6,7 @@ from pymongo import errors
 from tqdm import tqdm  # 进度条库（核心新增）
 from common import const, utils
 from data_ctl import tushare_ctl
-from util import mongoDb_ctl
+from db_ctl.util import mongoDb_ctl
 
 
 def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col) -> int:
@@ -47,7 +47,7 @@ def insert_tdx_daily_to_mongo(data: pd.DataFrame, tdx_daily_col) -> int:
         return 0
 
 
-def main_get_tdx_daily():
+def main_get_tdx_daily() -> str | None:
     print("=" * 60)
     print(f"启动通达信板块日线更新")
     print("=" * 60)
@@ -57,7 +57,7 @@ def main_get_tdx_daily():
     conf_coll = mongoDb_ctl.init_mongo_collection(const.CONF_COLL)
     run, start_date, end_date = utils.get_start_end_date(pro, True)
     if not run:
-        return
+        return None
     start_date_str = start_date.strftime(const.DATE_FORMAT)
     end_date_str = end_date.strftime(const.DATE_FORMAT)
     print(
@@ -71,8 +71,9 @@ def main_get_tdx_daily():
             return
         print(f"成功读取{len(stock_list)}个有效板块代码（示例：{stock_list[:3]}）")
     except Exception as e:
-        print(f"读取tdx_index集合失败：{str(e)}")
-        return
+        err = "读取tdx_index集合失败：" + str(e)
+        print(err)
+        return err
 
     total_inserted = 0
     with tqdm(total=len(stock_list), desc="拉取日线数据进度", unit="个") as batch_pbar:
@@ -90,7 +91,9 @@ def main_get_tdx_daily():
                                 "bm_buy_net", "bm_buy_ratio", "bm_net", "bm_ratio"]
                 df = df[mongo_fields].copy()
             except Exception as e:
-                print(f" 拉取失败：{str(e)}")
+                err = " 拉取失败：" + str(e)
+                print(err)
+                return err
             # 批量插入MongoDB
             batch_inserted = insert_tdx_daily_to_mongo(
                 data=df,
@@ -108,6 +111,7 @@ def main_get_tdx_daily():
     print(f"总统计：处理{len(stock_list)}个板块，新增{total_inserted}条日线数据")
     print(f"覆盖交易日：{start_date_str} ~ {end_date_str}")
     print("=" * 60)
+    return None
 
 
 if __name__ == "__main__":
